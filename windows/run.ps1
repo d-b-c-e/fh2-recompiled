@@ -23,6 +23,10 @@ $arguments = @(
     "--user_data_root=$user",
     "--log_file=$(Join-Path $logs 'fh2.log')",
     '--gpu_plugin=fh1',
+    # The FH1 native executor is Vulkan-only. On Windows the SDK otherwise picks
+    # Direct3D 12, every draw "Failed in backend" and the window stays white
+    # (first run, 2026-10-16). Upstream's prototype ran on Linux, Vulkan by default.
+    '--gpu_backend=vulkan',
     '--gpu_allow_invalid_fetch_constants=true',
     '--log_max_file_size_mb=200') + $GameArgs
 Start-Process -FilePath $exe -ArgumentList $arguments -WorkingDirectory $BuildDir
