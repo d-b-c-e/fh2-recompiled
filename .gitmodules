@@ -1,0 +1,3 @@
+[submodule "windows/thirdparty/shiftglue-sdk"]
+	path = windows/thirdparty/shiftglue-sdk
+	url = https://github.com/arcanite24/shiftglue-sdk.git

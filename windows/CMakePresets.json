@@ -1,0 +1,24 @@
+{
+  "version": 6,
+  "configurePresets": [
+    {
+      "name": "win-amd64-release",
+      "displayName": "Windows AMD64 Release (clang, ShiftGlue SDK)",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/out/build/${presetName}",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_C_COMPILER": "clang",
+        "CMAKE_CXX_COMPILER": "clang++",
+        "CMAKE_C_FLAGS": "-msse4.1",
+        "CMAKE_CXX_FLAGS": "-msse4.1",
+        "REXSDK_DIR": "${sourceDir}/thirdparty/shiftglue-sdk",
+        "REXGLUE_USE_VULKAN": "ON"
+      },
+      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Windows" }
+    }
+  ],
+  "buildPresets": [
+    { "name": "win-amd64-release", "configurePreset": "win-amd64-release" }
+  ]
+}

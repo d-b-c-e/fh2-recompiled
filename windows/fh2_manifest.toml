@@ -1,0 +1,25 @@
+# Windows/ShiftGlue codegen manifest. Same inputs as ../app/fh2_manifest.toml (the
+# Linux/Android tree); the overrides are included from ../app so both builds use the
+# same function boundaries. Generated code goes to windows/generated (ignored by Git).
+
+[project]
+name = "fh2"
+sdk_version = "0.10.0"
+game_root = "../assets/game_root"
+
+[entrypoint]
+file_path = "../assets/game_root/default.xex"
+out_directory_path = "generated/default"
+includes = ["../app/overrides.toml"]
+
+[[modules]]
+guest_path = "xmediafacade_default.xex"
+file_path = "../assets/game_root/XMediaFacade_default.xex"
+out_directory_path = "generated/xmediafacade_default"
+includes = ["../app/overrides_xmediafacade.toml"]
+
+[[modules]]
+guest_path = "speechfacade_default.xex"
+file_path = "../assets/game_root/SpeechFacade_default.xex"
+out_directory_path = "generated/speechfacade_default"
+includes = ["../app/overrides_speechfacade.toml"]
