@@ -39,3 +39,23 @@ the shared lease first.
 pwsh -File windows\build.ps1 -IsoPath "D:\path\to\FH2.iso"
 pwsh -File windows\run.ps1
 ```
+
+## Racing wheel
+
+The SDK's raw wheel path (off by default) presents a wheel base, pedals, buttons and an
+H-shifter, each from its own USB device if need be, as an Xbox 360 force feedback wheel,
+and plays FH2's own wheel effects on the base. FH2 looks up the kernel's wheel force
+feedback calls by ordinal at run time, as FH1 does. Settings and defaults:
+`thirdparty\shiftglue-sdk\docs\RACING_WHEELS.md`. They live in `fh2.toml` beside `fh2.exe`
+and can be changed in game (F4, Input) or, with the game closed, by script:
+
+```powershell
+pwsh -File windows\tools\Set-Fh2Wheel.ps1 -Enabled on -LogInputs on   # then read the wheel lines in .local\logs\fh2.log
+pwsh -File windows\tools\Set-Fh2Wheel.ps1 -Throttle axis2 -Brake axis3 -Strength 15
+pwsh -File windows\tools\Set-Fh2Wheel.ps1                              # show the current settings
+```
+
+Not yet tried on a wheel. Start with a low strength on a direct-drive base; the force
+direction (`-Invert`) and FH2's effect scale (`-Scale`; FH1 needs 127) are still to be
+checked with `-Trace on`. `pwsh -File windows\tools\Test-Fh2Wheel.ps1` checks the script
+offline.
