@@ -62,9 +62,13 @@ quadros do console original.
 O que este projeto acrescenta ao SDK:
 
 - Um launcher Android: renderizador emulado ou nativo, resolução de renderização em porcentagem, MSAA/FXAA,
-  filtro anisotrópico, qualidade das sombras (nativo), limite de FPS (de 30 a livre), modo de apresentação,
+  filtro anisotrópico, qualidade das sombras (nativo), detalhe do mundo (grama, objetos, reflexos, distância das
+  sombras e multidão de 0,25x a 4x do Xbox 360, todos menos objetos também desligáveis; a grama, e desligar
+  sombras e multidão, no renderizador nativo), limite de FPS (de 30 a livre), modo de apresentação,
   fixação de threads, idioma do jogo e do app, um painel com FPS e uso de GPU, CPU e RAM, importar/exportar
   saves e cópias de segurança.
+- Teclado e mouse como controle, reconhecidos sozinhos como um controle: o jogo os lê como um controle de Xbox
+  360, com um layout de corrida, o mouse virando a câmera e toda tecla rebindável dentro do jogo.
 - O jogo rodando direto da imagem do disco (.iso), sem precisar extrair.
 - Drivers Vulkan personalizados (Turnip, pacotes da Qualcomm) carregados pelo libadrenotools, com um teste de
   Vulkan antes do uso.
@@ -82,7 +86,9 @@ Problemas conhecidos:
 
 - Taxa de quadros baixa nos celulares, limitada pela emulação da GPU (o processamento de comandos nos celulares
   rápidos; os resolves e recargas de textura nos mais fracos).
-- No Android, às vezes a colisão falha (o carro atravessa alguns objetos); em investigação.
+- Os carros colidem com o cenário e entre si, mas a colisão ainda não está perfeita: no Android o carro às vezes
+  ainda atravessa alguns objetos; em investigação.
+- Na oficina de pintura, a imagem do carro no cartão Designs fica esticada.
 - O renderizador nativo ainda tem erros de imagem em alguns lugares; o emulado é o fiel.
 - Algumas opções do menu ainda não funcionam (o launcher as marca assim).
 
@@ -128,6 +134,17 @@ Problemas conhecidos:
    tools/rodar_pc.sh
    ```
 
+   **Regenere o código depois de baixar mudanças no `app/overrides.toml`** (ou em qualquer outro `app/*.toml`). O
+   código gerado não fica no Git. Esta compilação para Linux o regenera quando esses arquivos mudam, mas a do
+   Android (passo 4) não consegue rodar o gerador; então, se você só compila o APK, uma correção feita ali não
+   chega a ele. Por exemplo, a correção do crash da oficina de pintura só declara o `setjmp` e o `longjmp` do jogo
+   no `app/overrides.toml`; sem regenerar, o jogo continua fechando ao entrar na oficina. Rode de novo a
+   compilação deste passo, ou só o gerador:
+
+   ```sh
+   REXGLUE=$PWD/sdk/out/linux-amd64/rexglue tools/codegen.sh app
+   ```
+
 4. **Compile o APK Android** (depois do passo 3, que produziu o código gerado):
 
    ```sh
@@ -160,6 +177,19 @@ celular (ou junto da .iso), por exemplo com `tools/enviar_biblioteca_android.sh`
 **Drivers de GPU.** **Desempenho > Driver da GPU** importa um pacote de driver do adrenotools (.zip) e o testa
 com Vulkan antes de deixar escolhê-lo. Nos Adreno 6xx e 7xx um Turnip (Mesa) costuma ser mais rápido que o
 driver do próprio celular.
+
+**Teclado e mouse.** Um teclado e um mouse por Bluetooth ou USB são reconhecidos sozinhos, como um controle:
+não há nada para ligar. O jogo os lê como um controle de Xbox 360, junto com qualquer controle conectado, num
+layout de corrida: A/D viram, W acelera, S freia, Espaço é o freio de mão (A), o mouse e as setas viram a
+câmera, IJKL é o direcional, Enter é o Start, Esc e Tab são o Back, C é o B, X é o X e Z é o Y. O mouse prende
+o ponteiro na primeira vez que se mexe. Qualquer tecla pode ser trocada dentro do jogo com **F4** (a janela de
+opções do próprio jogo, categoria *Input/Keybinds/Controller*). Os controles de toque saem de cena quando um
+teclado ou um mouse é conectado ou usado e voltam quando eles saem ou no primeiro toque.
+
+## Tutoriais
+
+- [Tutorial — Build do Android e biblioteca de shaders (português)](TUTORIAL_SHADERS_PT-BR.md): clone, codegen, biblioteca `fh2_shaders.nfsp`, APK, instalação no Moto G9 Play (Adreno 610) e configuração do renderizador nativo com fallback sem descriptor indexing (método A), sem Turnip.
+- [Tutorial — Android build and native shader library (English)](TUTORIAL_SHADERS_EN.md): mesmo guia em inglês.
 
 ## Estrutura do repositório
 

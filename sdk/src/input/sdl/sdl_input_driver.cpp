@@ -9,9 +9,11 @@
  * @modified    Tom Clay, 2026 - Adapted for ReXGlue runtime
  */
 
+#include <algorithm>
 #include <array>
 #include <atomic>
 #include <chrono>
+#include <cstring>
 #include <filesystem>
 
 #include <rex/assert.h>
@@ -22,6 +24,8 @@
 #include <rex/logging.h>
 #include <rex/platform.h>
 #include <rex/ui/virtual_key.h>
+
+#include <rex/input/android_vibration_hook.h>
 
 REXCVAR_DEFINE_STRING(hid_mappings_file, "gamecontrollerdb.txt", "Input",
                       "Path to SDL gamecontroller mappings file");
@@ -296,6 +300,62 @@ X_RESULT SDLInputDriver::GetDeviceState(DeviceId id, X_INPUT_STATE* out_state) {
   return X_ERROR_SUCCESS;
 }
 
+namespace {
+// The Android phone vibrates with the game's rumble when the launcher enabled it and the chosen mode includes
+// the phone; intensity follows the stronger motor. The game sets the rumble once per frame, so the phone is only
+// told when something changes (another intensity step, a stop) or its short one-shot is about to run out:
+// - stopped as soon as the game zeroes the motors (before, a 65 s one-shot kept buzzing after the rumble ended);
+// - armed for kPhoneRumbleMs and re-armed while the game keeps rumbling, so a game that stops calling (pause,
+//   crash, app in the background) leaves the phone still within a second.
+// Called with the driver's lock held (SetDeviceVibration), which also guards the state below.
+constexpr int kPhoneRumbleMs = 1000;
+constexpr auto kPhoneRumbleRearm = std::chrono::milliseconds(kPhoneRumbleMs - 250);
+constexpr int kPhoneIntensityStep = 10;  // percent; smaller changes keep the running one-shot
+
+void VibratePhone(const X_INPUT_VIBRATION* vibration) {
+  static int phone_intensity = 0;  // what the phone is doing now, 0 = still
+  static std::chrono::steady_clock::time_point phone_armed{};
+  if (!fx2_android_vibration_enabled()) {
+    return;
+  }
+  const char* mode = fx2_android_vibration_mode();
+  if (!mode || (std::strcmp(mode, "phone") != 0 && std::strcmp(mode, "both") != 0)) {
+    return;
+  }
+  const uint32_t speed = std::max<uint32_t>(vibration->left_motor_speed, vibration->right_motor_speed);
+  if (speed == 0) {
+    if (phone_intensity != 0) {
+      phone_intensity = 0;
+      fx2_android_vibration_vibrate(0, 0);  // cancel
+    }
+    return;
+  }
+  // Scale 0-65535 motor speed to 1-100 intensity, in kPhoneIntensityStep steps.
+  const int intensity = std::clamp(
+      (int(speed * 100 / 0xFFFF) + kPhoneIntensityStep / 2) / kPhoneIntensityStep * kPhoneIntensityStep, 1, 100);
+  const auto now = std::chrono::steady_clock::now();
+  if (intensity == phone_intensity && now - phone_armed < kPhoneRumbleRearm) {
+    return;
+  }
+  phone_intensity = intensity;
+  phone_armed = now;
+  fx2_android_vibration_vibrate(kPhoneRumbleMs, intensity);
+}
+
+// Whether a physical pad gets the game's rumble: input_vibracion (the settings file) or, on Android, the
+// launcher's vibration with a mode that includes the pad. "Phone only" sends the pad zero, so it stops.
+bool PadRumbles() {
+  if (REXCVAR_GET(input_vibracion)) {
+    return true;
+  }
+  if (!fx2_android_vibration_enabled()) {
+    return false;
+  }
+  const char* mode = fx2_android_vibration_mode();
+  return mode && (std::strcmp(mode, "gamepad") == 0 || std::strcmp(mode, "both") == 0);
+}
+}  // namespace
+
 X_RESULT SDLInputDriver::SetDeviceVibration(DeviceId id, X_INPUT_VIBRATION* vibration) {
   assert(sdl_events_initialized_ && SDL_Gamepad_initialized_);
 
@@ -309,16 +369,23 @@ X_RESULT SDLInputDriver::SetDeviceVibration(DeviceId id, X_INPUT_VIBRATION* vibr
   }
 
   if (controller->is_touch) {
+    // Touch controller (on-screen pad): only the phone can vibrate.
+    VibratePhone(vibration);
     return X_ERROR_SUCCESS;
   }
 
   // XInput vibration holds until the guest changes it, but SDL rumble expires,
   // and a zero duration expires on the next SDL_UpdateJoysticks. Arm it for
   // SDL's maximum instead; each call cancels the previous effect anyway.
-  return SDL_RumbleGamepad(controller->sdl, vibration->left_motor_speed,
-                           vibration->right_motor_speed, kRumbleDurationMs)
-             ? X_ERROR_SUCCESS
-             : X_ERROR_FUNCTION_FAILED;
+  const bool pad = PadRumbles();
+  bool rumbled = SDL_RumbleGamepad(controller->sdl, pad ? uint16_t(vibration->left_motor_speed) : uint16_t(0),
+                                   pad ? uint16_t(vibration->right_motor_speed) : uint16_t(0),
+                                   kRumbleDurationMs);
+
+  // Also vibrate the Android phone itself when the gamepad rumbles.
+  VibratePhone(vibration);
+
+  return rumbled ? X_ERROR_SUCCESS : X_ERROR_FUNCTION_FAILED;
 }
 
 X_RESULT SDLInputDriver::GetDeviceKeystroke(DeviceId id, uint32_t flags,
