@@ -6,10 +6,10 @@
 // paddle's own test first: when it refuses, the reverse request becomes "no request" (10) for that physics step.
 // Neutral, forward gears and reverse below the limit are untouched; a held R engages once the car is slow enough.
 //
-// SDK-free on purpose: tools/fh2_reverse_guard_check.py builds it with the generated gate blocks on fake memory.
 #pragma once
 #include <cstdint>
 #include <cstring>
+#include <rex/ppc/intrinsics.h>
 
 namespace fh2::reverse_guard {
 
@@ -37,7 +37,7 @@ inline float ForwardVelocity(const uint8_t* base, uint32_t b) {
   double p[3];
   for (int i = 0; i < 3; ++i)
     p[i] = double(LoadF32(base, b + kVelocity + 4 * i)) * double(LoadF32(base, b + kForward + 4 * i));
-  return float((p[0] + p[2]) + p[1]);
+  return rex::ppc::simde_mm_vmsum_narrow_result((p[0] + p[2]) + p[1]);
 }
 inline float Limit(const uint8_t* base) { return float(double(LoadF32(base, kLimitMph)) * double(LoadF32(base, kMphToMps))); }
 inline bool Refuses(float forward, float limit) { return !(double(forward) < double(limit)); }  // NaN refuses, as stock

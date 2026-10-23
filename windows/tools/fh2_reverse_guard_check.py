@@ -7,7 +7,8 @@ the game:
   (sub_82EBC460) and ManualWithClutch (sub_82EBCAD8); with --baseline, each handler gains only that line;
 - with --cxx and --sdk: both generated gate blocks (label to the B+5826 store, verbatim) on fake guest memory, hooked
   and, with --baseline, unhooked: refused and allowed reverse, the exact limit, reversing, NaN, neutral, forward gears,
-  no request, and a held R engaging once slow. The unhooked blocks must show reverse engaging at speed.
+  no request, and a held R engaging once slow. Compare the guard dot to the pinned SDK vector instruction for
+  three-axis, overflow and subnormal cases. The unhooked blocks must show reverse engaging at speed.
 
     python -I fh2_reverse_guard_check.py [--generated <dir>] [--baseline <dir>] [--cxx <clang++> --sdk <sdk> --out <dir>]
 """
@@ -45,7 +46,7 @@ assert any(h.get("name") == "Fh2GearReadRefused" and h["address"] == 0x82D84260 
 assert tomllib.loads(text("fh2_manifest.toml"))["entrypoint"]["non_volatile_as_local"] is False, "r31 lives in ctx"
 header = text("src/fh2_reverse_guard.h")
 for needle in ("kRequest = 6696", "kVelocity = 192", "kForward = 144", "kLimitMph = 0x835FE378u + 360",
-               "kMphToMps = 0x8200590Cu", "kNoRequest = 10", "return float((p[0] + p[2]) + p[1]);",
+               "kMphToMps = 0x8200590Cu", "kNoRequest = 10", "simde_mm_vmsum_narrow_result((p[0] + p[2]) + p[1])",
                "!(double(forward) < double(limit))"):
     assert needle in header, f"fh2_reverse_guard.h: {needle}"
 assert "void Fh2GateReverseGuard(PPCContext& ctx, uint8_t* base) { fh2::reverse_guard::Apply(base, ctx.r31.u32); }" \
@@ -169,12 +170,13 @@ static void put32(uint32_t a, uint32_t v) { v = __builtin_bswap32(v); std::memcp
 static void putf(uint32_t a, float f) { uint32_t v; std::memcpy(&v, &f, 4); put32(a, v); }
 static uint32_t get32(uint32_t a) { uint32_t v; std::memcpy(&v, g + a, 4); return __builtin_bswap32(v); }
 struct Result { int target, state, events, prev, request; };
-static Result Step(Block block, int request, int prev, int state, int current, float forward) {
+static Result Step(Block block, int request, int prev, int state, int current, float forward,
+                   float y = 0, float z = 0, float ax = 1, float ay = 0, float az = 0) {
   std::memset(g + B, 0, 0x2000);
   g[B + 6696] = uint8_t(request); g[B + 5826] = uint8_t(prev); put32(B + 6700, uint32_t(state));
   g[B + 5008] = uint8_t(current); put32(B + 5036, 6); g[B + 5009] = 0xEE;
-  putf(B + 192, forward); putf(B + 196, 0); putf(B + 200, 0);    // velocity, m/s
-  putf(B + 144, 1); putf(B + 148, 0); putf(B + 152, 0);          // forward axis
+  putf(B + 192, forward); putf(B + 196, y); putf(B + 200, z);    // velocity, m/s
+  putf(B + 144, ax); putf(B + 148, ay); putf(B + 152, az);       // forward axis
   putf(fh2::reverse_guard::kLimitMph, 15.0f); putf(fh2::reverse_guard::kMphToMps, 0.44704f);
   PPCContext ctx{};
   ctx.r31.u64 = B; ctx.r1.u64 = 0x40080000;
@@ -186,6 +188,19 @@ static int checks = 0, failures = 0, hazards = 0;
 static void check(bool ok, const char* mode, const char* what) {
   ++checks;
   if (!ok) { ++failures; std::printf("FAIL %s: %s\n", mode, what); }
+}
+static bool DotMatchesSdk() {
+  const auto velocity = simde_mm_set_ps(fh2::reverse_guard::LoadF32(g, B + 192),
+                                        fh2::reverse_guard::LoadF32(g, B + 196),
+                                        fh2::reverse_guard::LoadF32(g, B + 200), 0);
+  const auto axis = simde_mm_set_ps(fh2::reverse_guard::LoadF32(g, B + 144),
+                                    fh2::reverse_guard::LoadF32(g, B + 148),
+                                    fh2::reverse_guard::LoadF32(g, B + 152), 0);
+  const float stock = simde_mm_cvtss_f32(rex::ppc::simde_mm_vmsum3fp128(velocity, axis));
+  const float guard = fh2::reverse_guard::ForwardVelocity(g, B);
+  uint32_t stock_bits, guard_bits;
+  std::memcpy(&stock_bits, &stock, 4); std::memcpy(&guard_bits, &guard, 4);
+  return stock_bits == guard_bits;
 }
 static void Mode(const char* mode, Block block, bool fixed) {
   const float limit = float(15.0 * double(0.44704f));
@@ -201,6 +216,17 @@ static void Mode(const char* mode, Block block, bool fixed) {
   check(Step(block, 0, 3, 0, 3, limit).target == 0xEE, mode, "R at exactly the limit: refused");
   check(Step(block, 0, 3, 0, 3, std::nextafter(limit, 0.f)).target == 0, mode, "R just below the limit: allowed");
   check(Step(block, 0, 3, 0, 3, -20.f).target == 0, mode, "R while rolling backwards: allowed");
+  r = Step(block, 0, 3, 0, 3, -std::numeric_limits<float>::max(),
+           -std::numeric_limits<float>::max(), 0, 0.70710677f, 0.70710677f, 0);
+  check(r.target == 0xEE && r.events == 0, mode, "finite negative overflow: refused");
+  check(DotMatchesSdk() && std::isnan(fh2::reverse_guard::ForwardVelocity(g, B)), mode,
+        "finite negative overflow: SDK NaN dot bits");
+  r = Step(block, 0, 3, 0, 3, 9.f, -4.f, 3.f, 0.8f, -0.2f, 0.1f);
+  check(r.target == 0xEE && DotMatchesSdk(), mode, "three-axis dot: SDK bits and refusal");
+  r = Step(block, 0, 3, 0, 3, -std::numeric_limits<float>::min(), 0, 0, 0.5f);
+  const float tiny = fh2::reverse_guard::ForwardVelocity(g, B);
+  check(r.target == 0 && tiny == 0 && std::signbit(tiny) && DotMatchesSdk(), mode,
+        "signed subnormal: SDK negative zero dot and allowed reverse");
   check(Step(block, 0, 3, 0, 3, std::numeric_limits<float>::quiet_NaN()).target == 0xEE, mode, "NaN: refused, as stock");
   r = Step(block, 9, 3, 0, 3, 20.f);
   check(r.target == 9 && r.state == 3 && r.events == 0, mode, "neutral at speed: as stock");
