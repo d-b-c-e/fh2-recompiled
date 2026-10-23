@@ -2,6 +2,7 @@
 //
 // SDK-free on purpose: tools/fh2_telemetry_check.py builds it with fake guest memory and the packet checks.
 #pragma once
+#include <cmath>
 #include <cstdint>
 #include <cstring>
 
@@ -46,7 +47,7 @@ inline bool Readable(uint32_t address, uint32_t size) {
   return address >= 0x10000 && end <= 0x100000000ull && !(end > 0x7F000000u && address < 0x80000000u);
 }
 
-// One snapshot at the controls hand-over. Refuses unless I is a car-dynamics object and both ranges are readable.
+// One snapshot at the controls hand-over. Refuses unreadable/non-car data and values unsafe for the wire conversions.
 inline bool Read(const uint8_t* base, uint32_t dynamics, uint32_t controls, Snapshot& out) {
   if (!Readable(dynamics, kSpan) || !Readable(controls, kControlsSize)) return false;
   const uint32_t vtable = LoadU32(base, dynamics);
@@ -61,7 +62,11 @@ inline bool Read(const uint8_t* base, uint32_t dynamics, uint32_t controls, Snap
   out.idle = LoadF32(base, dynamics + kIdle);
   out.speed = LoadF32(base, dynamics + kSpeed);
   out.gear = base[dynamics + kGear];
-  return true;
+  // Reject before publication so bad samples cannot refresh freshness or replace the stale engine constants.
+  return std::isfinite(out.gas) && std::isfinite(out.brake) && std::isfinite(out.steer) &&
+         std::isfinite(out.clutch) && std::isfinite(out.handbrake) && std::isfinite(out.speed) &&
+         std::isfinite(out.engine * kRadPerSecToRpm) && std::isfinite(out.redline * kRadPerSecToRpm) &&
+         std::isfinite(out.idle * kRadPerSecToRpm);
 }
 
 // Forza gear as SimHub decodes it: 0 R, 11 N (toolkit cf9e212), forward unchanged.
