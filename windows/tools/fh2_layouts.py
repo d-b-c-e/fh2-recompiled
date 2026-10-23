@@ -40,6 +40,19 @@ LEFT JOIN GameOptionMap g ON g.OptionId = o.Id AND g.ValueId = m.DefValue
 LEFT JOIN GameOptionValues v ON v.Id = g.ValueId"""
 
 
+# The per-player wheel options as the profile schema defines them (media/profileschema/ForzaProfile.sch). A player's
+# saved profile can change any of them; these are only the values a new profile starts with.
+EXPECTED_WHEEL_PROFILE = {'Layout': '0', 'RumbleSetting': '1', 'InvertGearUpDown': '0', 'InvertHandbrakeClutch': '0',
+                          'InvertCameraLookBack': '0', 'RewindOnBack': '0', 'ActivateOnBack': '0'}
+
+
+def wheel_profile(db):
+    import xml.etree.ElementTree as ET
+    schema = Path(db).resolve().parents[1] / 'profileschema' / 'ForzaProfile.sch'
+    bag = ET.parse(schema).getroot().find("Property[@name='WheelOptions']")
+    return {p.get('name'): p.get('value') for p in bag.findall('Property')}
+
+
 def connect(db):
     return sqlite3.connect(Path(db).resolve().as_uri() + '?mode=ro&immutable=1', uri=True)
 
@@ -77,7 +90,11 @@ def main(argv):
         if defaults != EXPECTED_WHEEL_DEFAULTS:
             print(f'Wheel option defaults differ from the recorded ones:\n{defaults}')
             return 1
-        print(f'WheelLayouts ({len(actual)} rows) and wheel option defaults ({len(defaults)}) match')
+        profile = wheel_profile(db)
+        if profile != EXPECTED_WHEEL_PROFILE:
+            print(f'WheelOptions in the profile schema differ from the recorded ones:\n{profile}')
+            return 1
+        print(f'WheelLayouts ({len(actual)} rows), wheel option defaults ({len(defaults)}) and profile schema WheelOptions ({len(profile)}) match')
         return 0
     for table in ('WheelLayouts', 'BristolLayouts', 'ControllerLayouts'):
         for layout, row in read(db, table).items():

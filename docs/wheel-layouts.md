@@ -134,6 +134,47 @@ keys exist only in the registry below.
     Activate 25, CarChallengeInfo 26);
   - when `invert` is set, `sub_82597158(&id, 3, 6)` swaps **Handbrake and Clutch**.
 
+## Menus, Rewind and the per-player options (audit, 2026-10-23)
+
+Static audit for the actions the Wheelkit route leaves out. The game data here is on the
+disc, not in the fork, so it is the same for every fork commit built from this `default.xex`
+(including `23118b7`):
+- `gamedb.slt`, SHA-256 prefix `fd439c50d9ca2148`;
+- `media/profileschema/ForzaProfile.sch`, SHA-256 prefix `6e8b506e3dc5c90b`.
+
+**Per-player wheel options.** `ForzaProfile.sch` (lines 262-269) defines `WheelOptions` as
+seven Int32 values. A new profile starts with `Layout` 0, `RumbleSetting` 1, and 0 for
+`InvertGearUpDown`, `InvertHandbrakeClutch`, `InvertCameraLookBack`, `RewindOnBack` and
+`ActivateOnBack`. `fh2_layouts.py --check` asserts these. A player's saved profile can change
+every one of them:
+- `Layout` picks the `WheelLayouts` row (`sub_8255C410`).
+- `InvertHandbrakeClutch` swaps the Handbrake and Clutch actions (`sub_82597158`).
+- `InvertGearUpDown`, `InvertCameraLookBack`, `RewindOnBack` and `ActivateOnBack` are read
+  into a flags block by `sub_82576B78`, but where they take effect was not traced. By their
+  names, the last two put Rewind or Activate on Back.
+
+So a pad input's action is fixed only together with these options. The inputs that are the
+same in every row (A, the shoulders, Back, d-pad down, the pedals and the clutch) still
+assume the options keep their defaults.
+
+**Where the profile lives.** The SDK keeps saves and the profile under `--user_data_root`
+(the LaunchBox install's `user\`). That folder has only `cache\` so far, because the game
+has not got past its title screen there. The saved profile's format is not established, so
+nothing outside the game can read a player's `Layout` or options yet.
+
+**Rewind.** It is Y in rows 0 and 1 and X in row 2. With the defaults (row 0, `RewindOnBack`
+0) it is Y. That mapping can be proved only for an unchanged profile.
+
+**Menus.** No menu input table exists in `gamedb.slt`. The UI definitions are in
+`media/UI.zip`: scene files (`.bgf`/`.bsg`/`.fbf`) stored with a compression method a
+standard zip reader does not support. The code around the `Accept`/`Cancel` strings showed no
+pad-button masks. Confirm/back/start therefore stay unmapped. The SDK's default
+`wheel_buttons` keeps d-pad navigation on hat 0.
+
+**What would settle it.** Either decode the saved profile once the game has written one, and
+read `WheelOptions` from it; or run the game once with `wheel_log_inputs` and note what A, B,
+Start and the face buttons do in the menus and in a race.
+
 ## Not established
 
 - **The class at run time.** The static chain above says the SDK's subtype-2 wheel is
