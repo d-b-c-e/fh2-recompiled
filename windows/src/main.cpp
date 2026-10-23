@@ -14,10 +14,12 @@
 #include "fh2_device_paths.h"
 #include "fh2_teste_entrada.h"
 
+// Read once, before input opens (ExcludeDevicePaths): a change applies at the next start only.
 REXCVAR_DEFINE_STRING(fh2_excluded_device_paths, "", "FH2",
                       "Devices the game must not open, as exact SDL device paths separated by ';' "
-                      "(write / for \\), e.g. a wheel another program drives. Empty: every device "
-                      "is offered as before");
+                      "(write / for \\), e.g. a wheel another program drives. Restart the game for a "
+                      "change to apply. Empty: every device is offered as before")
+    .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
 
 namespace fh2::toque {
 void Envolver(rex::RuntimeConfig& config);
