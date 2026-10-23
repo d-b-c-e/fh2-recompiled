@@ -20,6 +20,8 @@ fh2_multiscreen_null_peer_guard, off by default) without the game or a build.
 - --initialise-only instead checks actual generated sub_8320E1A8: five forced helper failures on fresh peers
   leave peer+20/+24 zero; success publishes the exact server/handler. An early-publication mutant must fail.
   Helper results, allocation, locking and ABI save/restore are modeled; this does not establish worker drain.
+- --lifetime-only checks generated factory/release/provider drain and fresh-server listener teardown with fake
+  resources. Unknown helpers, incomplete construction and pending work fail closed; concurrency remains untested.
 - The setup's only caller is game init sub_82493A58, the holder getter returns 0x833F2D34, the settings getter
   0x833F2D88, and the application's methods and camera gate test the gate global 0x8342B5DC first.
 A fake cannot show that a live run reaches the hook, what the peer setup does on the host, or that the peer's own
@@ -36,7 +38,9 @@ parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("--cxx", required=True)
 parser.add_argument("--out", required=True, type=Path)
 parser.add_argument("--generated", required=True, type=Path)
-parser.add_argument("--initialise-only", action="store_true", help="run only the bounded Initialise publication fixture")
+modes = parser.add_mutually_exclusive_group()
+modes.add_argument("--initialise-only", action="store_true", help="run only the bounded Initialise publication fixture")
+modes.add_argument("--lifetime-only", action="store_true", help="run only the generated lifecycle fixture")
 args = parser.parse_args()
 root = Path(__file__).resolve().parents[2]
 out = args.out.resolve()
@@ -209,6 +213,13 @@ int main(int argc, char** argv) {
 (out / "harness.cpp").write_text(harness)
 FLAGS = ["-std=c++20", "-Wall", "-Wextra", "-Werror", "-Wno-unused-variable", "-Wno-unused-but-set-variable",
          "-Wno-unused-label", "-Wno-unused-parameter", "-I", str(out / "stub")]
+
+
+if args.lifetime_only:
+    import runpy
+    runpy.run_path(str(Path(__file__).with_name("fh2_lifetime_check.py")),
+                  init_globals={"generated": generated, "out": out, "stub": stub, "args": args, "FLAGS": FLAGS})
+    raise SystemExit(0)
 
 
 if args.initialise_only:
