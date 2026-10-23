@@ -13,13 +13,40 @@ FH2 does not hard-code its controls. `sub_8255C410` builds the query
 4,061,184 bytes, SHA-256 prefix `fd439c50d9ca2148`.
 
 The class comes from byte `+22` of the player's input record, `*(0x835890D0) +
-index*5648` (`index` from `r3+48`):
+index*5648` (`index` from `r3+48`). The branch labels in the generated code give the
+mapping (`loc_8255C478` takes `r28`, `loc_8255C470` takes `r27`):
 
 | Byte | Class (string) | Table |
 |---|---|---|
-| 1 | `Bristol` (`0x82016800`) | `BristolLayouts`: no sticks or shoulders |
-| 2 | `Wheel` (`0x820167F8`) | `WheelLayouts` |
+| 1 | `Wheel` (`0x820167F8`) | `WheelLayouts` |
+| 2 | `Bristol` (`0x82016800`) | `BristolLayouts`: no sticks or shoulders |
 | other | `Controller` (`0x82016808`) | `ControllerLayouts` |
+
+(An earlier version of this table swapped 1 and 2.)
+
+### Who writes the class (`sub_82D82EF0`)
+
+The input manager is the record base: the global `0x835890D0`, passed by `sub_823FDB68`
+(`lis r21,-31911`, then `lwz r3,-28464(r21)`) into `sub_82D843C0`. That function walks
+four devices with stride 5648. It starts its pointer at `manager+22` (`addi r30,r3,22`),
+so the device object is at `manager + 16 + i*5648`, and the device's `+6` is the
+record's `+22`. `sub_82D82EF0(device)` polls one device:
+
+1. Calls `XInputGetCapabilities(user = device+0, flags = 1)` into `r1+96` (XDK wrapper
+   `sub_831D59E0`). If that succeeds, sets `device+6 = 0`.
+2. If the device description query `sub_831F6428` succeeds, reads two properties with
+   `sub_831F6740`. If they are **1118 (0x045E) and 690 (0x02B2)**, sets `device+6 = 2`
+   (**Bristol**).
+3. Otherwise (`loc_82D8303C`), if the capabilities **SubType** (`r1+97`) **== 2**, sets
+   `device+6 = 1` (**Wheel**). No flags are checked on this path.
+4. Anything else leaves 0, which is **Controller**.
+
+So a device that reports XInput subtype 2 selects `WheelLayouts`, unless its vendor and
+product read back as 045E:02B2. ShiftGlue `59bc11f5` reports subtype 2 for its raw wheel
+(`docs/RACING_WHEELS.md`). Its `X_INPUT_CAPABILITIES` has no vendor or product fields,
+`XamInputGetCapabilitiesEx` fills only the standard capabilities, `XamInputRawState` is a
+stub, and the SDK source has no 045E:02B2 constant. Statically, then, the SDK's wheel
+selects **WheelLayouts**. This is not yet observed at run time.
 
 ## WheelLayouts (3 rows)
 
@@ -109,11 +136,9 @@ keys exist only in the registry below.
 
 ## Not established
 
-- **Which class the SDK's wheel gets.** The SDK presents XInput subtype 2 with the force
-  feedback flag, but what writes byte `+22` from the capabilities was not found.
-  `sub_82D81888` stores the capabilities at `+1212` of the controller object; a direct
-  writer of `+22` next to the record base, or in the input and profile modules, did not
-  turn up. So it is not proven that the SDK's wheel selects `WheelLayouts`.
+- **The class at run time.** The static chain above says the SDK's subtype-2 wheel is
+  class 1 (Wheel). One run with the wheel enabled would confirm it. (The `+1212` buffer
+  in `sub_82D81888` belongs to the vibration path, not to the class.)
 - **Where gear and look-back inversion take effect.** `InvertGearUpDown` and
   `InvertCameraLookBack` are read into a local block in `sub_82576B78` and passed on;
   the code that applies them was not traced. A saved profile can also override every
