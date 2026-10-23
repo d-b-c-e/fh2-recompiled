@@ -38,7 +38,7 @@ def text(path):
 # --- Source ------------------------------------------------------------------------------------------------------------
 hooks = tomllib.loads(text("fh2_dbce_overrides.toml"))["midasm_hook"]
 telemetry = {"address": 0x8249B3F0, "name": HOOK, "context": True}
-assert hooks.count(telemetry) == 1 and len(hooks) == 2, f"hooks: {hooks}"
+assert hooks.count(telemetry) == 1 and len(hooks) == 4, f"hooks: {hooks}"
 assert any(h.get("name") == "Fh2GearReadRefused" and h["address"] == 0x82D84260 for h in hooks), "refusal hook kept"
 vendored = (windows / "src/vendor/forza_packet.h").read_bytes()
 assert hashlib.sha256(vendored.replace(b"\r\n", b"\n")).hexdigest().upper() == VENDOR_SHA, \
