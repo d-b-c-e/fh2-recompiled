@@ -377,7 +377,8 @@ for name, mode, body, link_hook in builds:
         continue
     exe = folder / "harness.exe"
     sources = [folder / "harness.cpp"] + ([windows / "src/fh2_wheel_gear.cpp"] if link_hook else [])
-    subprocess.run([args.cxx, "-std=c++20", "-O1", "-msse4.1", f"-DMODE={mode}", "-Wno-unused-variable",
+    # The FH2 build's language and linker: CMAKE_CXX_STANDARD 23 (rex/types.h uses std::byteswap) and lld-link.
+    subprocess.run([args.cxx, "-std=c++23", "-fuse-ld=lld", "-O1", "-msse4.1", f"-DMODE={mode}", "-Wno-unused-variable",
                     "-Wno-unused-label", "-I", str(out), "-I", str(args.sdk / "include"),
                     "-I", str(args.sdk / "thirdparty/simde"), *map(str, sources), "-o", str(exe)], check=True)
     run = subprocess.run([str(exe)], capture_output=True, text=True)
