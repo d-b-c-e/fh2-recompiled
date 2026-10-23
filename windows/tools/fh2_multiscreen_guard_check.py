@@ -244,8 +244,9 @@ check(run.returncode == 0 and "consumers finished settings25=0 gate=00000000" in
       f"after the guard every direct consumer runs without touching page 0:\n{run.stdout}")
 for name in ("sub_82E79170", "sub_82E797C8", "sub_82E78CC0", "sub_82E78CE0"):
     check(f"done {name} r3=00000000" in run.stdout, f"{name} answers no role / no server:\n{run.stdout}")
-check("done sub_82E79198 r3=" in run.stdout and "done sub_82E791C8 r3=" in run.stdout and "INDIRECT" not in run.stdout,
-      f"the role writers return early and the queue send makes no peer call:\n{run.stdout}")
+check(all(re.search(rf"done {n} r3=\w+ server\+2280=5A5A5A5A", run.stdout) for n in ("sub_82E79198", "sub_82E791C8"))
+      and "INDIRECT" not in run.stdout,
+      f"the role writers return early, leaving server+2280 as filled (5A5A5A5A), and the queue send makes no peer call:\n{run.stdout}")
 
 holder_only = source.replace("  base[kSettings + 25] = 0;\n", "").replace("  GuardarU32(base, kGate, 0);\n", "")
 assert holder_only != source
