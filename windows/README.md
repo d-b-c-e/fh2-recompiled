@@ -18,7 +18,7 @@ not apply to a desktop GPU.
 | `fh2_manifest.toml` (same inputs, `windows/generated` output) | `overrides*.toml` (function boundaries) |
 | `src/main.cpp`, `fh2_toque.cpp`, `fh2_medidor.cpp` (from the prototype) | `src/fh2_correcoes.cpp`, `fh2_teste_entrada.cpp`, `fh2_captura.cpp` |
 | `rexglue_proto.cmake`, `tools/tabela_registro.py` (from the prototype) | |
-| `thirdparty/shiftglue-sdk` (submodule, same revision as Pinyon Shift: `1e8968f7`) | |
+| `thirdparty/shiftglue-sdk` (submodule, same revision as Pinyon Shift 0.6.1: `59bc11f5`, with its wheel force feedback, `docs/RACING_WHEELS.md`) | |
 
 ## Supported disc
 

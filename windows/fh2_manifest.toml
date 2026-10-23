@@ -11,6 +11,9 @@ game_root = "../assets/game_root"
 file_path = "../assets/game_root/default.xex"
 out_directory_path = "generated/default"
 includes = ["../app/overrides.toml"]
+# Upstream turns this on for its own SDK. In ShiftGlue it was wrong before 59bc11f5 and is
+# slower on x86-64 since (Pinyon Shift keeps it off), so the Windows build keeps the default.
+non_volatile_as_local = false
 
 [[modules]]
 guest_path = "xmediafacade_default.xex"
