@@ -39,6 +39,11 @@ uint32_t CargarU32(const uint8_t* base, uint32_t address) {
   return __builtin_bswap32(value);
 }
 
+void GuardarU32(uint8_t* base, uint32_t address, uint32_t value) {
+  value = __builtin_bswap32(value);
+  __builtin_memcpy(base + address, &value, sizeof(value));
+}
+
 }  // namespace
 
 // Box-against-box contact (FH2 world props), the rare path of sub_82ED0488 through sub_82ECF9D8. With an S23 save
@@ -88,4 +93,28 @@ REX_HOOK_RAW(sub_82ECEB88) {
                 static_cast<uint32_t>(ctx.lr));
   }
   ctx.r3.u64 = 1;
+}
+
+REX_EXTERN(__imp__sub_82E81C20);
+
+// sub_82E81C20 is the multiscreen setup, run once by game init sub_82493A58. As a server it allocates the server into
+// holder+8 (the CMultiscreen@Network singleton at 0x833F2D34), marks multiscreen active (+52) and creates the server's
+// network peer at server+2100 (sub_82E7EC78). When creating or initialising the peer fails, the peer is released and
+// nulled while the server stays in holder+8, still active; race code later calls through it with no null check
+// (sub_829D1ED8 -> server slot +64 sub_82E78E98 -> peer vt+28) and would read guest 0. That one state goes back to the
+// game's own "no server" state (holder+8 = 0, which every server consumer already checks), not active and without the
+// side view (+53). The default and client roles, a missing server, and a server with a peer (a failed host is caught
+// by the game's own error checks) are left as they are.
+REX_HOOK_RAW(sub_82E81C20) {
+  constexpr uint32_t kHolder = 0x833F2D34;
+  __imp__sub_82E81C20(ctx, base);
+  const uint32_t server = CargarU32(base, kHolder + 8);
+  if (server == 0 || CargarU32(base, server + 2100) != 0) {
+    return;
+  }
+  REXLOG_ERROR("[fh2] multiscreen server without a network peer (state {}): continuing without multiscreen",
+               CargarU32(base, server + 2096));
+  GuardarU32(base, kHolder + 8, 0);
+  base[kHolder + 52] = 0;
+  base[kHolder + 53] = 0;
 }
