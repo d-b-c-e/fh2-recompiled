@@ -26,13 +26,40 @@ EXPECTED_WHEEL = {
     2: {**_COMMON, 'ButtonB': 'Clutch', 'ButtonX': 'Rewind', 'ButtonY': 'Activate'},
 }
 
+# Profile option defaults for the wheel pages (GameOptionCategoryMap group 4, categories 6 and
+# 8), resolved through GameOptionValues where the option has named values.
+EXPECTED_WHEEL_DEFAULTS = {
+    'WheelLayout': 'DefaultLayout=0', 'InvertGearUpDownWheel': 'Off=0', 'RumbleSettingWheel': 'On=1',
+    'InvertCameraLookBackWheel': '0', 'InvertHandbrakeClutchWheel': '0', 'Use900DegreeSettings': '1',
+    'ForceFeedbackScale': '1',
+}
+_DEFAULTS_QUERY = """
+SELECT o.Token, m.DefValue, v.Token, v.Value FROM GameOptions o
+JOIN GameOptionCategoryMap m ON m.OptionId = o.Id AND m.GroupId = 4 AND m.CatId IN (6, 8)
+LEFT JOIN GameOptionMap g ON g.OptionId = o.Id AND g.ValueId = m.DefValue
+LEFT JOIN GameOptionValues v ON v.Id = g.ValueId"""
+
+
+def connect(db):
+    return sqlite3.connect(Path(db).resolve().as_uri() + '?mode=ro&immutable=1', uri=True)
+
 
 def read(db, table):
-    con = sqlite3.connect(Path(db).resolve().as_uri() + '?mode=ro&immutable=1', uri=True)
+    con = connect(db)
     try:
         cur = con.execute(f'SELECT * FROM "{table}" ORDER BY LayoutId')
         cols = [c[0] for c in cur.description]
         return {row[0]: dict(zip(cols[1:], row[1:])) for row in cur}
+    finally:
+        con.close()
+
+
+def wheel_defaults(db):
+    con = connect(db)
+    try:
+        return {token: (f'{name}={value}' if name else str(default))
+                for token, default, name, value in con.execute(_DEFAULTS_QUERY)
+                if token in EXPECTED_WHEEL_DEFAULTS}
     finally:
         con.close()
 
@@ -46,7 +73,11 @@ def main(argv):
         if actual != EXPECTED_WHEEL:
             print(f'WheelLayouts differ from the recorded layouts:\n{actual}')
             return 1
-        print(f'WheelLayouts match the recorded layouts ({len(actual)} rows)')
+        defaults = wheel_defaults(db)
+        if defaults != EXPECTED_WHEEL_DEFAULTS:
+            print(f'Wheel option defaults differ from the recorded ones:\n{defaults}')
+            return 1
+        print(f'WheelLayouts ({len(actual)} rows) and wheel option defaults ({len(defaults)}) match')
         return 0
     for table in ('WheelLayouts', 'BristolLayouts', 'ControllerLayouts'):
         for layout, row in read(db, table).items():
