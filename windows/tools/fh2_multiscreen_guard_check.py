@@ -17,6 +17,9 @@ fh2_multiscreen_null_peer_guard, off by default) without the game or a build.
   must run without touching page 0 and come back "no role" / "no server". A mutant that only clears the holder (the
   earlier e7c0766 behaviour) must crash in sub_82E79198, which writes server+2280 through holder+8: guest 0x8E8.
 - A mutant without the peer test must change the two states with a peer.
+- --initialise-only instead checks actual generated sub_8320E1A8: five forced helper failures on fresh peers
+  leave peer+20/+24 zero; success publishes the exact server/handler. An early-publication mutant must fail.
+  Helper results, allocation, locking and ABI save/restore are modeled; this does not establish worker drain.
 - The setup's only caller is game init sub_82493A58, the holder getter returns 0x833F2D34, the settings getter
   0x833F2D88, and the application's methods and camera gate test the gate global 0x8342B5DC first.
 A fake cannot show that a live run reaches the hook, what the peer setup does on the host, or that the peer's own
@@ -33,6 +36,7 @@ parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("--cxx", required=True)
 parser.add_argument("--out", required=True, type=Path)
 parser.add_argument("--generated", required=True, type=Path)
+parser.add_argument("--initialise-only", action="store_true", help="run only the bounded Initialise publication fixture")
 args = parser.parse_args()
 root = Path(__file__).resolve().parents[2]
 out = args.out.resolve()
@@ -205,6 +209,111 @@ int main(int argc, char** argv) {
 (out / "harness.cpp").write_text(harness)
 FLAGS = ["-std=c++20", "-Wall", "-Wextra", "-Werror", "-Wno-unused-variable", "-Wno-unused-but-set-variable",
          "-Wno-unused-label", "-Wno-unused-parameter", "-I", str(out / "stub")]
+
+
+if args.initialise_only:
+    # Reuse extraction and fake-guest headers, but compile no game hook or existing guard suite.
+    init = generated["sub_8320E1A8"]
+    helpers = ["__savegprlr_20", "__restgprlr_20", "__imp__RtlEnterCriticalSection", "__imp__RtlLeaveCriticalSection",
+               "sub_8320C528", "sub_83218720", "sub_8321BF68", "sub_83219D30", "sub_831F8C18",
+               "sub_8320C598", "sub_83217AA8", "sub_83217A20", "sub_831FF8C8"]
+    prefix = '#include "rex/ppc/func.h"\n' + "\n".join(f"REX_EXTERN({n});" for n in helpers) + r"""
+void InitIndirect(PPCContext&, uint8_t*, uint32_t);
+#undef REX_CALL_INDIRECT_FUNC
+#define REX_CALL_INDIRECT_FUNC(x) InitIndirect(ctx, base, uint32_t(x))
+#define REX_STACK_LOAD_U32(a) REX_LOAD_U32(a)
+#define REX_STACK_STORE_U32(a, v) REX_STORE_U32(a, v)
+#define REX_TAIL_CALL(fn) do { fn(ctx, base); return; } while (0)
+"""
+    init_harness = r"""
+#include <windows.h>
+#include "rex/ppc/func.h"
+REX_EXTERN(sub_8320E1A8);
+constexpr uint32_t peer = 0x10000, worker = 0x20000, table = worker + 128, stack = 0x30800;
+constexpr uint32_t server = 0x41424344, handler = 0x82E7EB98, error = 0x8007000E;
+int fault, stage, locks, indirects, releases, failures;
+PPCContext saved;
+void Require(bool ok, const char* why) { if (!ok) { printf("FAIL fault=%d %s\n", fault, why); ++failures; } }
+// shortcut: ABI helpers preserve nonvolatile registers in host storage; not a stack-unwind/ABI test.
+REX_EXTERN(__savegprlr_20) { saved = ctx; }
+REX_EXTERN(__restgprlr_20) {
+""" + "\n".join(f"  ctx.r{i} = saved.r{i};" for i in range(20, 32)) + r"""
+  ctx.lr = saved.r12.u64;
+}
+REX_EXTERN(__imp__RtlEnterCriticalSection) { Require(ctx.r3.u32 == peer + 516 && locks == 0, "enter lock"); ++locks; }
+REX_EXTERN(__imp__RtlLeaveCriticalSection) { Require(ctx.r3.u32 == peer + 516 && locks == 1, "leave lock"); --locks; }
+bool Step(PPCContext& ctx, int expected) {
+  Require(++stage == expected && locks == 1, "helper order/lock");
+  ctx.r3.u64 = fault == expected ? error : 0;
+  return ctx.r3.u32 == 0;
+}
+REX_EXTERN(sub_8320C528) { Require(ctx.r3.u32 == peer + 184, "first helper receiver"); Step(ctx, 1); }
+REX_EXTERN(sub_83218720) { Require(ctx.r3.u32 == peer + 468, "second helper receiver"); Step(ctx, 2); }
+void InitIndirect(PPCContext& ctx, uint8_t*, uint32_t target) {
+  Require(target == 0x12345678 && ctx.r3.u32 == worker && ctx.r4.u32 == 1 && ctx.r5.u32 == 0, "worker dispatch");
+  ++indirects; ctx.r3.u64 = 0;
+}
+REX_EXTERN(sub_8321BF68) { Require(ctx.r3.u32 == worker && ctx.r4.u32 == 0, "configuration receiver/flags"); }
+REX_EXTERN(sub_83219D30) {
+  Require(ctx.r3.u32 == worker && ctx.r4.u32 == ctx.r1.u32 + 96, "query receiver/output");
+  if (Step(ctx, 3)) { FixtureStore32(base, ctx.r1.u32 + 120, 2); FixtureStore32(base, ctx.r1.u32 + 124, 3); }
+}
+REX_EXTERN(sub_831F8C18) {
+  const int next = stage + 1;
+  Require((next == 4 || next == 5) && ctx.r3.u32 == peer &&
+          ctx.r4.u32 == ctx.r1.u32 + (next == 4 ? 84 : 80), "allocation call/output");
+  if (Step(ctx, next)) FixtureStore32(base, ctx.r4.u32, 0xA000 + next * 16);
+}
+// Cleanup calls are observed, not executed: no host resources or workers are created here.
+REX_EXTERN(sub_8320C598) { Require(locks == 0 && ctx.r3.u32 == peer + 184, "cleanup first receiver"); }
+REX_EXTERN(sub_83217AA8) { Require(locks == 0 && ctx.r3.u32 == peer + 468, "cleanup second receiver"); }
+REX_EXTERN(sub_83217A20) { Require(locks == 0 && ctx.r4.u32 == 0xA040, "release first allocation"); ++releases; }
+REX_EXTERN(sub_831FF8C8) { Require(locks == 0 && ctx.r3.u32 == peer, "cleanup peer receiver"); }
+int main() {
+  auto* base = static_cast<uint8_t*>(VirtualAlloc(nullptr, 0x100000000ull, MEM_RESERVE, PAGE_NOACCESS));
+  for (uint32_t page : {peer, worker, stack & ~0xFFFu})
+    if (!base || !VirtualAlloc(base + page, 4096, MEM_COMMIT, PAGE_READWRITE)) return 2;
+  for (fault = 0; fault <= 5; ++fault) {
+    memset(base + peer, 0, 4096); memset(base + worker, 0, 4096); memset(base + (stack & ~0xFFFu), 0, 4096);
+    // Fresh zeroed callback fields, with only the factory's prerequisite object pointers modeled.
+    FixtureStore32(base, peer + 164, worker); FixtureStore32(base, peer + 44, worker);
+    FixtureStore32(base, worker, table); FixtureStore32(base, table + 56, 0x12345678);
+    stage = locks = indirects = releases = 0;
+    PPCContext ctx{}; ctx.r1.u64 = stack; ctx.r3.u64 = peer; ctx.r4.u64 = server; ctx.r5.u64 = handler; ctx.lr = 0x82E7ED00;
+    sub_8320E1A8(ctx, base);
+    const uint32_t context = FixtureLoad32(base, peer + 20), callback = FixtureLoad32(base, peer + 24);
+    Require(ctx.r3.u32 == (fault ? error : 0), "return code");
+    Require(context == (fault ? 0 : server) && callback == (fault ? 0 : handler), "callback publication");
+    Require(FixtureLoad32(base, peer + 16) == (fault ? 0 : 0x80000000), "initialized bit");
+    Require(stage == (fault ? fault : 5) && locks == 0, "reached intended failure/success and unlocked");
+    Require(indirects == (fault == 1 || fault == 2 ? 0 : 1), "worker dispatch count");
+    Require(releases == (fault == 5 ? 1 : 0), "allocation release count");
+    Require(ctx.r1.u32 == stack && ctx.lr == 0x82E7ED00, "returned stack/link");
+    printf("fault=%d stage=%d result=%08X context=%08X handler=%08X\n", fault, stage, ctx.r3.u32, context, callback);
+  }
+  VirtualFree(base, 0, MEM_RELEASE);
+  return failures ? 1 : 0;
+}
+"""
+    (out / "initialise_harness.cpp").write_text(init_harness)
+    # A fault after early publication must be detected, not merely a success path that never ran.
+    anchor = "\tsub_8320C528(ctx, base);"
+    assert init.count(anchor) == 1
+    mutant = init.replace(anchor, "\tREX_STORE_U32(ctx.r31.u32 + 20, ctx.r24.u32);\n"
+                          "\tREX_STORE_U32(ctx.r31.u32 + 24, ctx.r23.u32);\n" + anchor)
+    for label, body in (("initialise", init), ("initialise_early_publication", mutant)):
+        unit, exe = out / f"{label}.cpp", out / f"{label}.exe"
+        unit.write_text(prefix + body + "\n")
+        subprocess.run([args.cxx, *FLAGS, str(unit), str(out / "initialise_harness.cpp"), "-o", str(exe)], check=True, timeout=60)
+        run = subprocess.run([str(exe)], capture_output=True, text=True, timeout=10)
+        (out / f"{label}.txt").write_text(run.stdout + run.stderr)
+        assert run.returncode == (0 if label == "initialise" else 1), f"{label}: {run.returncode}\n{run.stdout}\n{run.stderr}"
+        if label != "initialise":
+            assert [line for line in run.stdout.splitlines() if line.startswith("FAIL")] == [
+                f"FAIL fault={n} callback publication" for n in range(1, 6)], run.stdout
+        print(run.stdout, end="")
+    print("Initialise: five failure sites leave callback pair zero; success publishes exact pair; early-publication mutant caught.")
+    raise SystemExit(0)
 
 
 def build(label, text):
