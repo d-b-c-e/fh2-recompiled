@@ -16,6 +16,10 @@ void Envolver(rex::RuntimeConfig& config);
 namespace fh2::medidor {
 void Arrancar();
 }
+namespace fh2::telemetry {
+void Start();
+void Stop();
+}
 #if REX_PLATFORM_ANDROID
 extern "C" void fh2_android_nucleos_grandes_aplicar();
 extern "C" void fh2_android_afinidade_iniciar();
@@ -39,6 +43,7 @@ class Fh2App : public rex::ReXApp {
   }
   void OnPostSetup() override {
     fh2::medidor::Arrancar();
+    fh2::telemetry::Start();
 #if REX_PLATFORM_ANDROID
     fh2_android_afinidade_iniciar();
 #endif
@@ -48,7 +53,10 @@ class Fh2App : public rex::ReXApp {
       return graphics ? graphics->presenter() : nullptr;
     });
   }
-  void OnShutdown() override { fh2::captura::Parar(); }
+  void OnShutdown() override {
+    fh2::telemetry::Stop();
+    fh2::captura::Parar();
+  }
 };
 
 REX_DEFINE_APP(fh2, Fh2App::Create)

@@ -23,11 +23,13 @@ set(FH2_SOURCES
     src/fh2_medidor.cpp
     src/fh2_wheel_gear.cpp
     src/fh2_reverse_guard.cpp
+    src/fh2_telemetry.cpp
     ${FH2_APP_SRC}/fh2_teste_entrada.cpp
     ${FH2_APP_SRC}/fh2_captura.cpp
     ${FH2_APP_SRC}/fh2_correcoes.cpp)
 if(WIN32)
     add_executable(fh2 WIN32 ${FH2_SOURCES})
+    target_link_libraries(fh2 PRIVATE ws2_32)   # fh2_telemetry.cpp: UDP to 127.0.0.1
 else()
     add_executable(fh2 ${FH2_SOURCES})
 endif()

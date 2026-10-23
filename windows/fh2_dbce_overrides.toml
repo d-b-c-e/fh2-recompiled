@@ -35,3 +35,13 @@ context = true
 address = 0x82EBCCC0
 name = "Fh2GateReverseGuard"
 context = true
+
+# Forza Data Out (src/fh2_telemetry.cpp, docs/telemetry-data-out-plan.md). The local input controller sub_8249A8E8
+# hands its controls to the car at 0x8249B3F0 `bctrl` (4E800421) through vtable +80, after `lwz r3,0(r3)`
+# (80630000), `addi r4,r1,96` (38810060), `lwz r11,0(r3)` and `lwz r11,80(r11)` (816B0050): r3 is the car's
+# ICarDynamics and r4 the controls. The hook only copies a snapshot; it neither returns nor jumps, so the call runs
+# as before. It reads nothing unless fh2_telemetry_port is set.
+[[midasm_hook]]
+address = 0x8249B3F0
+name = "Fh2TelemetryHandOff"
+context = true
