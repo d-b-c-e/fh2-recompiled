@@ -1,0 +1,22 @@
+# ============================================================================
+#  Forza Horizon 2 (Xbox 360, USA) - Windows-only codegen declarations
+#
+#  Included after ../app/overrides.toml from fh2_manifest.toml. ../app stays the
+#  tree shared with the Linux/Android build; what is here is for the Windows
+#  wheel build only. Flat schema (sections at the root).
+# ============================================================================
+
+# The H-shifter gate read (action 7, sub_82D841A0) sends every refused read (focus
+# without context 0, a first binding other than code 24, a chord, a class other than
+# Wheel, no shifter flag) to one instruction, 0x82D84260 `li r3,-1` (3860FFFF): the
+# same value as a held REVERSE. The driving sampler sub_824972C0 turns -1 into gear
+# 0, and the edge-triggered transmission (sub_82EBC460, sub_82EBCAD8) shifts to
+# reverse on it. Fh2GearReadRefused (src/fh2_wheel_gear.cpp) returns 10 there
+# instead: no gate request, which both handlers skip and the game writes itself
+# when input is off. The accepted read (0x82D84258 `lha r3,92(r1)` A861005C, then
+# `b 0x82D84264` 48000008) never reaches this instruction.
+[[midasm_hook]]
+address = 0x82D84260
+name = "Fh2GearReadRefused"
+registers = ["r3"]
+jump_address_on_true = 0x82D84264
