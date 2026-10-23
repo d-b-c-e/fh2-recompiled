@@ -55,6 +55,13 @@ pwsh -File windows\tools\Set-Fh2Wheel.ps1 -Throttle axis2 -Brake axis3 -Strength
 pwsh -File windows\tools\Set-Fh2Wheel.ps1                              # show the current settings
 ```
 
+`fh2_excluded_device_paths` (empty by default) lists exact SDL device paths, separated by `;`
+and written with `/` for `\`, that the game must not open, for a wheel another program drives.
+It needs `patches\sdk\0001-raw-wheel-path-exclusion.patch`, which `build.ps1` applies to the
+SDK submodule (the gitlink stays on upstream `59bc11f5`). If the input drivers cannot take the
+list, the game starts with input off rather than open those devices.
+`python -I windows\tools\fh2_device_paths_check.py --cxx <clang++> --out <folder>` checks it.
+
 Not yet tried on a wheel. Start with a low strength on a direct-drive base; the force
 direction (`-Invert`) and FH2's effect scale (`-Scale`; FH1 needs 127) are still to be
 checked with `-Trace on`. `pwsh -File windows\tools\Test-Fh2Wheel.ps1` checks the script

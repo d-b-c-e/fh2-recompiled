@@ -5,7 +5,8 @@
 
 .DESCRIPTION
     1. Extracts your own Forza Horizon 2 (Xbox 360) disc image into ..\assets\game_root
-       with upstream's tools\fase1_extraer.py (skipped when default.xex is already there).
+       with upstream's tools\fase1_extraer.py (skipped when default.xex is already there),
+       and applies patches\sdk\*.patch to the ShiftGlue submodule (skipped when applied).
     2. Gets the toolchain Pinyon Shift pins (LLVM 20.1.8, CMake 3.31.10, Ninja 1.13.2):
        reused from -ToolchainRoot when present, otherwise downloaded and SHA-256 checked
        into windows\.local\toolchain.
@@ -40,6 +41,16 @@ if (-not (Test-Path (Join-Path $gameRoot 'default.xex'))) {
     Step "Extracting $IsoPath -> $gameRoot"
     & python -I (Join-Path $repo 'tools\fase1_extraer.py') $IsoPath -o $gameRoot
     if ($LASTEXITCODE) { throw "fase1_extraer.py failed ($LASTEXITCODE)" }
+}
+
+# --- 1b. SDK patches (patches\sdk, in name order; the submodule stays on its upstream commit) ---
+$sdk = Join-Path $windows 'thirdparty\shiftglue-sdk'
+foreach ($patch in Get-ChildItem (Join-Path $windows 'patches\sdk') -Filter '*.patch' | Sort-Object Name) {
+    & git -C $sdk apply --reverse --check $patch.FullName 2>$null
+    if (-not $LASTEXITCODE) { continue }  # already applied
+    Step "SDK patch $($patch.Name)"
+    & git -C $sdk apply $patch.FullName
+    if ($LASTEXITCODE) { throw "$($patch.Name) does not apply to $sdk (git submodule update resets it)" }
 }
 
 # --- 2. Toolchain (same pins as Pinyon Shift config/release-toolchain.json) ----------

@@ -1,0 +1,349 @@
+From a694c8364701207ac5b15ba26db9f1e08ff2b7a0 Mon Sep 17 00:00:00 2001
+From: d-b-c-e <anthony.mason1@gmail.com>
+Date: Fri, 23 Oct 2026 00:51:18 -0500
+Subject: [PATCH] fix(input): isolate raw wheels before sdl admission (FH2
+ port)
+
+Cherry-pick of 0301093d (nepo, FH1) onto 59bc11f5 alone, without its
+parent 93a7e432 (resolved-action remap seam), for the FH2 Windows build.
+
+Optional pre-attach device path policy: InputSystem::ConfigureDevicePaths
+installs exact OS interface paths to exclude before AttachWindow; the SDL
+driver then skips them before SDL_OpenGamepad and before the raw wheel's
+SDL_OpenJoystick. No policy installed means no change.
+
+Port adjustments: the "Resolved actions" test case and the remap_seam
+fixture CMake (both from 93a7e432) are left out; FakeDriver loses `final`
+so the device-path test can derive from it, as on 93a7e432.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01HCiQ6QkyRFnhfXfshrj6tE
+---
+ include/rex/input/device_path_policy.h     |  29 ++++++
+ include/rex/input/input_driver.h           |   3 +
+ include/rex/input/input_system.h           |   2 +
+ include/rex/input/sdl/sdl_input_driver.h   |   3 +
+ src/input/input_system.cpp                 |   7 ++
+ src/input/sdl/sdl_input_driver.cpp         |  15 +++
+ tests/unit/input/device_path_seam.py       | 113 +++++++++++++++++++++
+ tests/unit/input/input_assignment_test.cpp |  31 +++++-
+ 8 files changed, 202 insertions(+), 1 deletion(-)
+ create mode 100644 include/rex/input/device_path_policy.h
+ create mode 100644 tests/unit/input/device_path_seam.py
+
+diff --git a/include/rex/input/device_path_policy.h b/include/rex/input/device_path_policy.h
+new file mode 100644
+index 00000000..25b4eb77
+--- /dev/null
++++ b/include/rex/input/device_path_policy.h
+@@ -0,0 +1,29 @@
++#pragma once
++
++#include <string>
++#include <string_view>
++#include <vector>
++
++namespace rex::input {
++
++// Optional, per-driver admission installed before window attachment. These are
++// exact OS interface paths, not SDL model GUIDs or VID/PID matches.
++struct DevicePathPolicy {
++  std::vector<std::string> excluded_paths;
++
++  bool Allows(std::string_view path) const {
++    // With isolation enabled an unidentifiable new SDL candidate is withheld;
++    // this does not change admission or state of other devices.
++    if (!excluded_paths.empty() && path.empty()) return false;
++    auto lower = [](char c) { return c >= 'A' && c <= 'Z' ? char(c + ('a' - 'A')) : c; };
++    for (const auto& excluded : excluded_paths) {
++      if (excluded.empty() || path.size() != excluded.size()) continue;
++      bool same = true;
++      for (std::size_t i = 0; i < path.size(); ++i) same &= lower(path[i]) == lower(excluded[i]);
++      if (same) return false;
++    }
++    return true;
++  }
++};
++
++}  // namespace rex::input
+diff --git a/include/rex/input/input_driver.h b/include/rex/input/input_driver.h
+index 1a72675b..f92f5be0 100644
+--- a/include/rex/input/input_driver.h
++++ b/include/rex/input/input_driver.h
+@@ -15,6 +15,7 @@
+ #include <vector>
+ 
+ #include <rex/input/device.h>
++#include <rex/input/device_path_policy.h>
+ #include <rex/input/dualsense.h>
+ #include <rex/input/input.h>
+ #include <rex/kernel.h>
+@@ -62,6 +63,8 @@ class InputDriver {
+   /// for a path that cannot deadlock on the driver's locks and waits for the
+   /// reports to leave.
+   virtual void ReleaseFeedback(bool /*crashing*/) {}
++  // False means unsupported or already attached; caller must refuse activation.
++  virtual bool ConfigureDevicePaths(const DevicePathPolicy&) { return false; }
+ 
+   void set_is_active_callback(std::function<bool()> is_active_callback) {
+     is_active_callback_ = is_active_callback;
+diff --git a/include/rex/input/input_system.h b/include/rex/input/input_system.h
+index df5d5ab1..cc5d28a6 100644
+--- a/include/rex/input/input_system.h
++++ b/include/rex/input/input_system.h
+@@ -43,6 +43,8 @@ class InputSystem : public system::IInputSystem {
+   void Shutdown() override;
+ 
+   void AddDriver(std::unique_ptr<InputDriver> driver);
++  // Before AttachWindow only. Number of drivers that accepted the policy.
++  size_t ConfigureDevicePaths(const DevicePathPolicy& policy);
+   void AttachWindow(rex::ui::Window* window);
+   void SetActiveCallback(std::function<bool()> callback);
+ 
+diff --git a/include/rex/input/sdl/sdl_input_driver.h b/include/rex/input/sdl/sdl_input_driver.h
+index f83503e5..f7952f69 100644
+--- a/include/rex/input/sdl/sdl_input_driver.h
++++ b/include/rex/input/sdl/sdl_input_driver.h
+@@ -72,6 +72,7 @@ class SDLInputDriver final : public InputDriver,
+   bool SetDeviceTriggerEffects(DeviceId id, const dualsense::TriggerEffects& effects) override;
+   bool SetDeviceLightbar(DeviceId id, const dualsense::Rgb* colour) override;
+   void ReleaseFeedback(bool crashing) override;
++  bool ConfigureDevicePaths(const DevicePathPolicy& policy) override;
+ 
+  private:
+   enum class RepeatState {
+@@ -262,6 +263,8 @@ class SDLInputDriver final : public InputDriver,
+   std::optional<WheelState> wheel_;
+   WheelBindings wheel_bindings_;
+   bool sdl_haptic_initialized_ = false;
++  DevicePathPolicy path_policy_;
++  bool path_policy_installed_ = false;
+   std::mutex controllers_mutex_;
+   std::mutex event_queue_mutex_;
+   std::vector<SDL_Event> pending_events_;
+diff --git a/src/input/input_system.cpp b/src/input/input_system.cpp
+index 7ae9509c..00a02deb 100644
+--- a/src/input/input_system.cpp
++++ b/src/input/input_system.cpp
+@@ -94,6 +94,13 @@ void InputSystem::AddDriver(std::unique_ptr<InputDriver> driver) {
+   drivers_.push_back(std::move(driver));
+ }
+ 
++size_t InputSystem::ConfigureDevicePaths(const DevicePathPolicy& policy) {
++  if (window_) return 0;
++  size_t accepted = 0;
++  for (auto& driver : drivers_) accepted += driver->ConfigureDevicePaths(policy) ? 1 : 0;
++  return accepted;
++}
++
+ void InputSystem::AttachWindow(rex::ui::Window* window) {
+   window_ = window;
+   for (auto& driver : drivers_) {
+diff --git a/src/input/sdl/sdl_input_driver.cpp b/src/input/sdl/sdl_input_driver.cpp
+index 44fbca79..0415f14c 100644
+--- a/src/input/sdl/sdl_input_driver.cpp
++++ b/src/input/sdl/sdl_input_driver.cpp
+@@ -286,6 +286,13 @@ SDLInputDriver::~SDLInputDriver() {
+   }
+ }
+ 
++bool SDLInputDriver::ConfigureDevicePaths(const DevicePathPolicy& policy) {
++  if (attached_window_ || sdl_events_initialized_) return false;
++  path_policy_ = policy;
++  path_policy_installed_ = true;
++  return true;
++}
++
+ X_STATUS SDLInputDriver::Setup() {
+   if (!TestSDLVersion()) {
+     return X_STATUS_UNSUCCESSFUL;
+@@ -833,6 +840,10 @@ void SDLInputDriver::ProcessEventLocked(const SDL_Event& event) {
+ }
+ 
+ void SDLInputDriver::OnControllerDeviceAddedLocked(const SDL_Event& event) {
++  if (path_policy_installed_) {
++    const char* path = SDL_GetJoystickPathForID(event.gdevice.which);
++    if (!path_policy_.Allows(path ? path : "")) return;
++  }
+   // A wheel base, pedal set or shifter is read raw for the wheel; as a
+   // gamepad it would steer with a stick-shaped axis and get plain rumble.
+   if (IsWheelPart(event.gdevice.which)) {
+@@ -1297,6 +1308,10 @@ bool SDLInputDriver::IsWheelPart(SDL_JoystickID instance_id) {
+ 
+ void SDLInputDriver::OnJoystickAddedLocked(const SDL_Event& event) {
+   const SDL_JoystickID which = event.jdevice.which;
++  if (path_policy_installed_) {
++    const char* path = SDL_GetJoystickPathForID(which);
++    if (!path_policy_.Allows(path ? path : "")) return;
++  }
+   if (!IsWheelPart(which)) {
+     return;
+   }
+diff --git a/tests/unit/input/device_path_seam.py b/tests/unit/input/device_path_seam.py
+new file mode 100644
+index 00000000..602bb428
+--- /dev/null
++++ b/tests/unit/input/device_path_seam.py
+@@ -0,0 +1,113 @@
++"""Compile actual SDL admission prefixes with fake opens; no SDL or devices."""
++import argparse
++from pathlib import Path
++import subprocess
++
++parser = argparse.ArgumentParser(description=__doc__)
++parser.add_argument("--cxx", required=True, help="C++ compiler in a configured build environment")
++parser.add_argument("--out", required=True, type=Path)
++args = parser.parse_args()
++root = Path(__file__).resolve().parents[3]
++source = (root / "src/input/sdl/sdl_input_driver.cpp").read_text()
++
++
++def prefix(name, last_line):
++    start = source.index(f"void SDLInputDriver::{name}(")
++    end = source.index(last_line, start) + len(last_line)
++    return source[start:end] + "\n}\n"
++
++
++configure_start = source.index("bool SDLInputDriver::ConfigureDevicePaths(")
++configure_end = source.index("\n}\n", configure_start) + 3
++methods = source[configure_start:configure_end]
++methods += prefix("OnControllerDeviceAddedLocked",
++                  "const auto controller = SDL_OpenGamepad(event.gdevice.which);")
++methods += prefix("OnJoystickAddedLocked", "SDL_Joystick* sdl = SDL_OpenJoystick(which);")
++# Discard the opened fake handles, where the remainder of each real handler begins.
++methods = methods.replace("const auto controller =", "[[maybe_unused]] const auto controller =")
++methods = methods.replace("SDL_Joystick* sdl =", "[[maybe_unused]] SDL_Joystick* sdl =")
++
++harness = r'''
++#include <rex/input/device_path_policy.h>
++#include <cstdlib>
++#include <iostream>
++#include <vector>
++#define REXLOG_INFO(...) ((void)0)
++using rex::input::DevicePathPolicy;
++using SDL_JoystickID = int;
++struct SDL_Event { struct { int which = 1; } gdevice, jdevice; };
++struct SDL_Joystick {};
++const char* candidate_path = nullptr;
++int gamepad_opens = 0, joystick_opens = 0, path_reads = 0, checks = 0;
++const char* SDL_GetJoystickPathForID(int) { ++path_reads; return candidate_path; }
++void* SDL_OpenGamepad(int) { ++gamepad_opens; return nullptr; }
++SDL_Joystick* SDL_OpenJoystick(int) { ++joystick_opens; return nullptr; }
++struct SDLInputDriver {
++  void* attached_window_ = nullptr;
++  bool sdl_events_initialized_ = false, path_policy_installed_ = false, wheel_part = false;
++  DevicePathPolicy path_policy_;
++  struct WheelJoystick { int instance_id; };
++  std::vector<WheelJoystick> wheel_joysticks_;
++  bool IsWheelPart(int) { return wheel_part; }
++  bool ConfigureDevicePaths(const DevicePathPolicy&);
++  void OnControllerDeviceAddedLocked(const SDL_Event&);
++  void OnJoystickAddedLocked(const SDL_Event&);
++};
++void check(bool passed, const char* why) {
++  ++checks;
++  if (!passed) { std::cerr << "FAIL: " << why << '\n'; std::exit(1); }
++}
++'''
++harness += methods
++harness += r'''
++void arrival(const char* path, bool install, bool wheel, bool duplicate,
++             int expected_gamepad, int expected_raw) {
++  SDLInputDriver driver;
++  driver.wheel_part = wheel;
++  if (duplicate) driver.wheel_joysticks_.push_back({1});
++  if (install) check(driver.ConfigureDevicePaths({{"BOUND"}}), "install before attachment");
++  candidate_path = path;
++  gamepad_opens = joystick_opens = path_reads = 0;
++  driver.OnControllerDeviceAddedLocked({});
++  driver.OnJoystickAddedLocked({});
++  check(gamepad_opens == expected_gamepad, "gamepad admission");
++  check(joystick_opens == expected_raw, "raw joystick admission");
++  check(install || path_reads == 0, "default does not query paths");
++}
++int main() {
++  for (const char* path : std::vector<const char*>{nullptr, "", "BOUND", "bound", "other"}) {
++    arrival(path, false, false, false, 1, 0);
++    arrival(path, false, true, false, 0, 1);
++  }
++  for (const char* path : std::vector<const char*>{nullptr, "", "BOUND", "bound"}) {
++    arrival(path, true, false, false, 0, 0);
++    arrival(path, true, true, false, 0, 0);
++  }
++  arrival("other", true, false, false, 1, 0);
++  arrival("other", true, true, false, 0, 1);
++  arrival("BOUND-more", true, true, false, 0, 1);
++  arrival("other", true, true, true, 0, 0);
++  SDLInputDriver driver;
++  check(driver.ConfigureDevicePaths({{"BOUND"}}), "initial policy");
++  driver.attached_window_ = &driver;
++  check(!driver.ConfigureDevicePaths({}), "refuse after attachment");
++  check(!driver.path_policy_.Allows("bound"), "refused update retains exclusions");
++  driver.attached_window_ = nullptr;
++  driver.sdl_events_initialized_ = true;
++  check(!driver.ConfigureDevicePaths({}), "refuse after SDL initialization");
++  driver.sdl_events_initialized_ = false;
++  check(driver.ConfigureDevicePaths({}), "rollback before attachment");
++  check(driver.path_policy_.Allows("BOUND"), "empty policy restores admission");
++  check(driver.path_policy_.Allows(""), "empty policy permits unknown paths");
++  check(DevicePathPolicy{{"first", "BOUND"}}.Allows("other"), "unrelated device");
++  check(!DevicePathPolicy{{"first", "BOUND"}}.Allows("bound"), "second excluded path");
++  std::cout << checks << " admission checks passed (production prefixes, fake opens)\n";
++}
++'''
++args.out.mkdir(parents=True, exist_ok=True)
++fixture = args.out.resolve() / "device_path_seam.cpp"
++executable = args.out.resolve() / "device_path_seam.exe"
++fixture.write_text(harness)
++subprocess.run([args.cxx, "-std=c++17", "-Wall", "-Wextra", "-Werror",
++                "-I", str(root / "include"), str(fixture), "-o", str(executable)], check=True)
++subprocess.run([str(executable)], check=True)
+diff --git a/tests/unit/input/input_assignment_test.cpp b/tests/unit/input/input_assignment_test.cpp
+index 8a7deaca..4e60cd87 100644
+--- a/tests/unit/input/input_assignment_test.cpp
++++ b/tests/unit/input/input_assignment_test.cpp
+@@ -43,7 +43,7 @@ std::vector<DeviceId> For(const DeviceAssignment& a, uint32_t user) {
+ }
+ 
+ /// Exercises assignment with no SDL, window, or OS behind it.
+-class FakeDriver final : public InputDriver {
++class FakeDriver : public InputDriver {
+  public:
+   FakeDriver() : InputDriver(nullptr, 0) {}
+ 
+@@ -263,3 +263,32 @@ TEST_CASE("A synthetic device does not push the first pad off guest user 0", "[i
+   REQUIRE(static_cast<uint16_t>(state.gamepad.buttons) == X_INPUT_GAMEPAD_B);
+   REQUIRE(system->GetState(1, &state) == X_ERROR_DEVICE_NOT_CONNECTED);
+ }
++
++TEST_CASE("Device path admission is opt-in and pre-attach", "[input][device-paths]") {
++  class PathDriver final : public FakeDriver {
++   public:
++    int calls = 0;
++    rex::input::DevicePathPolicy policy;
++    bool ConfigureDevicePaths(const rex::input::DevicePathPolicy& value) override {
++      ++calls;
++      policy = value;
++      return true;
++    }
++  };
++  InputSystem system(nullptr);
++  system.AddDriver(std::make_unique<FakeDriver>());  // Unsupported by default.
++  const rex::input::DevicePathPolicy policy{{"BOUND"}};
++  REQUIRE(system.ConfigureDevicePaths(policy) == 0);
++  auto driver = std::make_unique<PathDriver>();
++  auto* observed = driver.get();
++  system.AddDriver(std::move(driver));
++  REQUIRE(observed->calls == 0);
++  REQUIRE(system.ConfigureDevicePaths(policy) == 1);
++  REQUIRE(observed->calls == 1);
++  REQUIRE_FALSE(observed->policy.Allows("bound"));
++  // FakeDriver's window callback is a no-op; the sentinel is never dereferenced.
++  system.AttachWindow(reinterpret_cast<rex::ui::Window*>(uintptr_t(1)));
++  REQUIRE(system.ConfigureDevicePaths({}) == 0);
++  REQUIRE(observed->calls == 1);
++  REQUIRE_FALSE(observed->policy.Allows("bound"));
++}
+-- 
+2.55.0.windows.5
+

@@ -1,0 +1,3 @@
+# ReXGlue SDK patches are applied with git apply to LF sources: keep them LF on
+# Windows checkouts (core.autocrlf=true turns them CRLF and every patch fails).
+*.patch text eol=lf
