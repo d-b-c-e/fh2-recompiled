@@ -41,8 +41,9 @@ repo = windows.parent
 
 # --- Source ------------------------------------------------------------------------------------------------------------
 dbce = tomllib.loads((windows / "fh2_dbce_overrides.toml").read_text())
-assert dbce == {"midasm_hook": [{"address": 0x82D84260, "name": HOOK, "registers": ["r3"],
-                                 "jump_address_on_true": 0x82D84264}]}, f"fh2_dbce_overrides.toml: {dbce}"
+refusal = {"address": 0x82D84260, "name": HOOK, "registers": ["r3"], "jump_address_on_true": 0x82D84264}
+assert set(dbce) == {"midasm_hook"} and dbce["midasm_hook"].count(refusal) == 1, f"fh2_dbce_overrides.toml: {dbce}"
+assert [h["address"] for h in dbce["midasm_hook"]].count(0x82D84260) == 1, "one hook at the refusal block"
 manifest = tomllib.loads((windows / "fh2_manifest.toml").read_text())
 assert manifest["entrypoint"]["includes"] == ["../app/overrides.toml", "fh2_dbce_overrides.toml"], "manifest include"
 assert all("fh2_dbce" not in str(m.get("includes")) for m in manifest["modules"]), "the facades are not hooked"

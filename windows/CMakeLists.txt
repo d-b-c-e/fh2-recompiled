@@ -22,6 +22,7 @@ set(FH2_SOURCES
     src/fh2_toque.cpp
     src/fh2_medidor.cpp
     src/fh2_wheel_gear.cpp
+    src/fh2_reverse_guard.cpp
     ${FH2_APP_SRC}/fh2_teste_entrada.cpp
     ${FH2_APP_SRC}/fh2_captura.cpp
     ${FH2_APP_SRC}/fh2_correcoes.cpp)

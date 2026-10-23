@@ -20,3 +20,18 @@ address = 0x82D84260
 name = "Fh2GearReadRefused"
 registers = ["r3"]
 jump_address_on_true = 0x82D84264
+
+# H-shifter reverse speed limit (owner decision; src/fh2_reverse_guard.cpp). The paddle path refuses 1 -> R unless the
+# forward velocity dot(B+192, B+144) is below MaxForwardVelShiftReverseMPH (Physics +360) x 0.44704; the H-gate block
+# has no such test. Each hook runs at its block's label, before the block reads the request: Manual sub_82EBC460
+# 0x82EBC658 `lbz r11,6696(r31)` (897F1A28), ManualWithClutch sub_82EBCAD8 0x82EBCCC0 `lbz r9,6696(r31)` (893F1A28).
+# It neither returns nor jumps; it may only turn a refused reverse request (0) into no request (10).
+[[midasm_hook]]
+address = 0x82EBC658
+name = "Fh2GateReverseGuard"
+context = true
+
+[[midasm_hook]]
+address = 0x82EBCCC0
+name = "Fh2GateReverseGuard"
+context = true
