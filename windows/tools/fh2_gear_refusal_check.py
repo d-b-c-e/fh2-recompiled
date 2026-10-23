@@ -7,9 +7,12 @@ the game:
   before `li r3,-1`, the accepted exit and the continuation entries as before; with --baseline (a tree generated
   without the hook), the reader differs only by the hook and the sampler sub_824972C0 not at all;
 - with --cxx and --sdk: the generated reader and the sampler's gate slice, compiled from --generated against the SDK's
-  PPCContext and the generated macros, on fake guest memory. Refused reads give 10 and gear byte 10, accepted reads
-  map as before, the continuation entries resume, r1/LR/r31 come back. Negative controls (no hook effect, the
-  withdrawn post-call comparison, the --baseline reader) must show the hazard.
+  PPCContext and the generated macros, on fake guest memory with the cached pad state set directly (the poll that
+  fills it is not run). Each refusal x 16 raw values gives 10 and gear byte 10 (no new gate request); accepted reads
+  map as before; the continuation entries resume with r1/LR/r31 back; with --baseline, a seeded differential
+  requires the whole PPCContext and the committed guest memory to match the unhooked reader except r3 of a refused
+  read. Negative controls (no hook effect, the withdrawn post-call comparison, the --baseline reader) must show the
+  hazard.
 
     python -I fh2_gear_refusal_check.py [--generated <dir>] [--baseline <dir>]
         [--cxx <clang++> --sdk <shiftglue-sdk> --out <scratch>] [--emit-only]
@@ -267,46 +270,85 @@ static int32_t Resume(uint32_t entry, Refusal refusal, int raw, uint64_t r3) {
   return ctx.r3.s32;
 }
 
+#ifdef HAVE_BASE
+// Seeded differential against the baseline reader: the whole PPCContext and the committed guest memory must match,
+// except r3 of a refused read (10 against -1).
+static void Seed(PPCContext& c, uint32_t s) {
+  auto* p = reinterpret_cast<uint8_t*>(&c);
+  for (size_t i = 0; i < sizeof c; ++i) { s = s * 1103515245u + 12345u; p[i] = uint8_t(s >> 16); }
+  c.r1.u64 = kStack; c.r3.u64 = kDevice; c.r4.u64 = 0; c.r5.u64 = 7; c.dispatch_address = 0;
+}
+static int Differential(Refusal refusal, int raw, uint32_t seed) {
+  static uint8_t before[0x100000], after_fix[0x100000];
+  Setup(refusal, raw);
+  for (uint32_t a = kStack - 0x400; a < kStack; a += 4) put32(a, seed ^ a);   // the frame below r1
+  std::memcpy(before, g_base + 0x40000000, sizeof before);
+  alignas(64) static PPCContext fixed, base;
+  Seed(fixed, seed); std::memcpy(&base, &fixed, sizeof base);
+  sub_82D841A0(fixed, g_base);
+  std::memcpy(after_fix, g_base + 0x40000000, sizeof after_fix);
+  std::memcpy(g_base + 0x40000000, before, sizeof before);
+  base_sub_82D841A0(base, g_base);
+  const bool memory = std::memcmp(after_fix, g_base + 0x40000000, sizeof after_fix) == 0;
+  bool r3 = fixed.r3.s64 == base.r3.s64;
+  if (refusal != kNone) { r3 = fixed.r3.s64 == 10 && base.r3.s64 == -1; fixed.r3 = base.r3; }
+  return memory && r3 && std::memcmp(&fixed, &base, sizeof fixed) == 0;
+}
+#endif
+
 int main() {
   g_base = static_cast<uint8_t*>(VirtualAlloc(nullptr, 0x100000000ull, MEM_RESERVE, PAGE_NOACCESS));
   if (!g_base || !VirtualAlloc(g_base + 0x40000000, 0x100000, MEM_COMMIT, PAGE_READWRITE)) return 2;
   const Refusal refusals[] = {kFocus_, kCode, kChord, kClass, kNoFlag};
   const char* names[] = {"", "focus", "code", "chord", "class", "flag"};
+  const int raws[] = {-32768, -2, -1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 255, 256, 32767};
   char what[96];
   const int fixed = MODE == 0 ? 10 : -1;     // what a refused read returns in this build
   for (Refusal r : refusals)
-    for (int raw : {-1, 0, 1, 7}) {
+    for (int raw : raws) {
       Setup(r, raw); PPCContext ctx = Fresh();
       std::snprintf(what, sizeof what, "refused (%s) read, raw %d", names[r], raw);
       check(Read(ctx) == fixed, what, ctx.r3.s32);
     }
-  // Accepted reads keep the raw value, big-endian; the sampler maps it as before.
-  const int accepted[][2] = {{-1, 0}, {0, 9}, {1, 1}, {2, 2}, {3, 3}, {4, 4}, {5, 5}, {6, 6}, {7, 7}};
-  for (auto& [raw, gear] : accepted) {
+  // Accepted reads keep the raw value, big-endian; the sampler maps it as before: -1 -> 0, 0 -> 9, 1..8 as is,
+  // 9 and above stay 10, below -1 its low byte.
+  for (int raw : raws) {
     Setup(kNone, raw); PPCContext ctx = Fresh();
     std::snprintf(what, sizeof what, "accepted read, raw %d", raw);
     check(Read(ctx) == raw, what, ctx.r3.s32);
+    const int expected = raw == -1 ? 0 : raw == 0 ? 9 : raw >= 9 ? 10 : raw < -1 ? uint8_t(raw) : raw;
+    const int gear = Gear(kNone, raw);
     std::snprintf(what, sizeof what, "accepted gear, raw %d", raw);
-    check(Gear(kNone, raw) == gear, what, Gear(kNone, raw));
+    check(gear == expected, what, gear);
   }
   Setup(kNone, 0); put16(kDevice + 152, 0x0100);
   { PPCContext ctx = Fresh(); check(Read(ctx) == 256, "bytes 01 00 read as 256 (big-endian)", ctx.r3.s32); }
-  check(Gear(kNone, 256) == 10, "256 is no gear request", Gear(kNone, 256));
   check(Gear(kNone, 1) == 1, "bytes 00 01 read as gear 1", Gear(kNone, 1));
   Setup(kNone, 3); g_flag = 0; g_reader_calls = 0;
   { PPCContext ctx = Fresh(); ctx.r30.u64 = kDevice; ctx.r31.u64 = kOut; g_base[kOut + 24] = 0xEE; gear_slice(ctx, g_base);
     check(g_base[kOut + 24] == 10 && g_reader_calls == 0, "no shifter: no read, gear 10", g_base[kOut + 24]); }
-  // Refused reads through the sampler: the fix gives 10 everywhere; without it (and with the withdrawn comparison
-  // when the cached raw is -1) the gear byte is 0, reverse.
+  // Refused reads through the sampler (the flag test passes, the reader refuses): the fix gives 10 everywhere; without
+  // it, and with the withdrawn comparison when the cached raw is -1, the gear byte is 0, reverse.
   int hazards = 0;
-  for (Refusal r : {kFocus_, kCode, kChord, kClass})
-    for (int raw : {-1, 0, 3}) {
+  for (Refusal r : refusals)
+    for (int raw : raws) {
       const int gear = Gear(r, raw);
       const int expected = MODE == 0 ? 10 : MODE == 2 ? (raw == -1 ? 0 : 10) : 0;
       std::snprintf(what, sizeof what, "refused (%s) gear, raw %d", names[r], raw);
       check(gear == expected, what, gear);
       hazards += gear == 0;
     }
+#ifdef HAVE_BASE
+  int cases = 0;
+  for (Refusal r : {kNone, kFocus_, kCode, kChord, kClass, kNoFlag})
+    for (int raw : raws)
+      for (uint32_t seed : {1u, 0x9E3779B9u, 0xDEADBEEFu}) {
+        std::snprintf(what, sizeof what, "differential (%s), raw %d, seed %08X", r ? names[r] : "accepted", raw, seed);
+        check(Differential(r, raw, seed), what, 0);
+        ++cases;
+      }
+  std::printf("differential against the baseline reader: %d seeded cases\n", cases);
+#endif
   // Continuation entries: after the binding walk (r3 = binding), after the chord test (r3 = result), after the copy.
   check(Resume(0x82D84214, kNone, 5, kBinding) == 5, "resume 0x82D84214 accepted", 0);
   check(Resume(0x82D84214, kCode, 5, kBinding) == fixed, "resume 0x82D84214 refused (code)", 0);
@@ -326,8 +368,10 @@ results = {}
 for name, mode, body, link_hook in builds:
     folder = out / name
     folder.mkdir(exist_ok=True)
-    src = harness.replace("@READER@", (f"extern bool {HOOK}(PPCRegister& r3);\n" if HOOK in body else "")
-                          + reader_source(body, name)).replace("@SLICE@", slice_src)
+    primary = (f"extern bool {HOOK}(PPCRegister& r3);\n" if HOOK in body else "") + reader_source(body, name)
+    if mode == 0 and args.baseline:   # the unhooked reader beside the fix, renamed, for the seeded differential
+        primary += "\n#define HAVE_BASE 1\n" + reader_source(base_reader, "baseline").replace(READER, f"base_{READER}")
+    src = harness.replace("@READER@", primary).replace("@SLICE@", slice_src)
     (folder / "harness.cpp").write_text(src)
     if args.emit_only:
         continue
@@ -343,6 +387,7 @@ if args.emit_only:
     print(f"fixture sources written to {out}")
     raise SystemExit(0)
 assert results["fix"][0] == 0 and "0 failures, 0 refused reads became reverse" in results["fix"][1], "the fix"
+assert not args.baseline or "differential against the baseline reader: 288 seeded cases" in results["fix"][1], "differential"
 for control in [n for n in results if n != "fix"]:
     code_, text = results[control]
     hazards = int(re.search(r"(\d+) refused reads became reverse", text).group(1))
