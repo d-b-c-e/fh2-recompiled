@@ -41,7 +41,8 @@ telemetry = {"address": 0x8249B3F0, "name": HOOK, "context": True}
 assert hooks.count(telemetry) == 1 and len(hooks) == 2, f"hooks: {hooks}"
 assert any(h.get("name") == "Fh2GearReadRefused" and h["address"] == 0x82D84260 for h in hooks), "refusal hook kept"
 vendored = (windows / "src/vendor/forza_packet.h").read_bytes()
-assert hashlib.sha256(vendored).hexdigest().upper() == VENDOR_SHA, "vendored forza_packet.h differs from cf9e212"
+assert hashlib.sha256(vendored.replace(b"\r\n", b"\n")).hexdigest().upper() == VENDOR_SHA, \
+    "vendored forza_packet.h differs from cf9e212 (aside from checkout line endings)"
 assert VENDOR_SHA in text("src/vendor/README.md"), "vendor provenance"
 cpp = text("src/fh2_telemetry.cpp")
 assert 'REXCVAR_DEFINE_INT32(fh2_telemetry_port, 0, "FH2"' in cpp, "off by default"
