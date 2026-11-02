@@ -1,5 +1,10 @@
 # Extent producers and the unresolved kind-1 plane contract
 
+Follow-up: the [original VMX comparison](VMX-PLANE-20261102.md) agrees with the
+generated finite kernel in 960 comparisons. It also identifies camera slot 32
+as a separate kind setter. Culling and actual kind-1 receiver identity remain
+held; the latest static checker has 45 checks.
+
 The traced extent setter and its deferred wrapper preserve all four arguments.
 The concrete producer found sets `(-4, +4, +4, -4)` and selects **orthographic
 kind 2**. It does not establish a kind-1 calling convention. **CULLING HOLD

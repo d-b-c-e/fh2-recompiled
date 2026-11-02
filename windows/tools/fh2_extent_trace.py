@@ -14,7 +14,7 @@ import struct
 IMAGE_SHA = "3708A857A4EEC4BC673DF3CD0F00D304702E67B7A5570B9D34C1803CA2102244"
 SELECTED = {"sub_823F2FF0", "sub_82F44FB0", "sub_82F44F90", "sub_82F43678",
             "sub_82408998", "sub_82E431E0", "sub_82F50780", "sub_823F2568",
-            "sub_82F46838", "sub_82F5BE50"}
+            "sub_82F46838", "sub_82F5BE50", "sub_82F435E8", "sub_82F44BB0", "sub_82F44B98"}
 
 
 def main():
@@ -26,6 +26,7 @@ def main():
     if hashlib.sha256(raw).hexdigest().upper() != IMAGE_SHA:
         raise ValueError("Wrong title image")
     selected, direct, raw_writers, modes, extents = {}, {}, {}, set(), set()
+    kind32_candidates = {}
     count = 0
     for path in args.generated.glob("*.cpp"):
         source = path.read_text(encoding="utf-8-sig")
@@ -39,7 +40,7 @@ def main():
                 if name in selected:
                     raise ValueError("Duplicate selected function")
                 selected[name] = (body, comments)
-            for target in ("sub_823F2FF0", "sub_82F43678", "sub_82E431E0", "sub_82F5BE50"):
+            for target in ("sub_823F2FF0", "sub_82F43678", "sub_82E431E0", "sub_82F5BE50", "sub_82F435E8", "sub_82F44BB0"):
                 if f"{target}(ctx, base);" in body or f"REX_TAIL_CALL({target})" in body:
                     direct.setdefault(target, []).append(name)
             offsets = sorted({int(v) for v in re.findall(r"\t// stfs f\d+,(240|244|248|252)\(r(?:3|31)\)", body)})
@@ -49,6 +50,13 @@ def main():
                 extents.add(name)
             if any(re.match(r"lwz r\d+,48\(r\d+\)", c) and any(v in comments[max(0,j-6):j+4] for v in ("li r4,0", "li r4,1")) for j,c in enumerate(comments)):
                 modes.add(name)
+            for j, line in enumerate(comments):
+                match32 = re.match(r"lwz r\d+,32\((r\d+)\)", line)
+                if not match32 or not any(re.match(r"lwz "+match32[1]+r",0\(r\d+\)", c) for c in comments[max(0,j-6):j]) or not any("mtctr" in c for c in comments[j+1:j+3]):
+                    continue
+                writes = [(k,c) for k,c in enumerate(comments[max(0,j-10):j+1],max(0,j-10)) if re.match(r"(?:li|lis|mr|addi|addis|lwz|ori|rotlwi|rlwinm|lbz) r4,", c)]
+                if writes and writes[-1][1] == "li r4,1" and not any(c.startswith(("bl ","bctrl")) for c in comments[writes[-1][0]+1:j]):
+                    kind32_candidates.setdefault(name, []).append(j)
     if set(selected) != SELECTED:
         raise ValueError("Missing selected camera function")
     checks = 0
@@ -73,10 +81,13 @@ def main():
     sequence("sub_82F50780", 98, ["lis r11,-32247", "lis r10,-32256", "mr r3,r30", "lfs f4,10284(r11)", "lfs f3,19132(r10)", "fmr f1,f4", "fmr f2,f3", "lwz r11,0(r30)", "lwz r11,76(r11)", "mtctr r11", "bctrl ", "lwz r11,0(r30)", "li r4,0", "mr r3,r30", "lwz r11,52(r11)", "mtctr r11", "bctrl "])
     sequence("sub_82F46838", 33, ["li r27,3"])
     sequence("sub_82F46838", 45, ["stw r27,8(r3)"])
+    sequence("sub_82F435E8", 0, ["li r11,1", "stw r4,8(r3)", "stb r11,480(r3)", "blr "])
+    sequence("sub_82F44B98", 0, ["lwz r11,0(r3)", "lwz r4,4(r4)", "lwz r11,32(r11)", "mtctr r11", "bctr "])
+    sequence("sub_82F44BB0", 13, ["stw r30,4(r3)"])
     values = {0x8209282C:-4., 0x82004ABC:4., 0x8224FA5C:.10000000149011612, 0x8224FA60:7.5}
     for address, value in values.items():
         expect(struct.unpack_from(">f", raw, address-0x82000000)[0] == value, "Producer constant changed")
-    slots = {44:0x82F46988,48:0x82F43678,52:0x823F2568,76:0x823F2FF0,196:0x823F3068}
+    slots = {32:0x82F435E8,44:0x82F46988,48:0x82F43678,52:0x823F2568,76:0x823F2FF0,196:0x823F3068}
     for table in (0x8224FBDC, 0x82002D44):
         for slot, target in slots.items():
             expect(struct.unpack_from(">I", raw, table+slot-0x82000000)[0] == target, "Camera vtable changed")
@@ -87,6 +98,7 @@ def main():
               "directFloatWriterCandidates":raw_writers,
               "slot76FloatCandidates":sorted(extents), "slot48ModeCandidates":sorted(modes),
               "candidateIntersection":sorted(extents & modes),
+              "slot32KindOneCandidates":kind32_candidates,
               "kind1ExtentProducerEstablished":False, "cullingAdmitted":False,
               "sourceBackedControl":{"producer":"82F50780", "kind":2,
                                      "storedExtents":[-4,4,4,-4], "near":values[0x8224FA5C],"far":7.5},

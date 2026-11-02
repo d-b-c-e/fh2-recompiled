@@ -109,7 +109,7 @@ int main(int argc,char** argv){
 '''
 
 
-def main():
+def main(transform=None):
     parser = argparse.ArgumentParser(description=__doc__)
     for name in ("generated", "sdk", "image", "cxx", "out"):
         parser.add_argument("--" + name, required=True, type=Path)
@@ -149,7 +149,8 @@ def main():
         keep = keep and line.rstrip().endswith("\\")
     (out / "fh2_macros.h").write_text("\n".join(macros)+"\n")
     declarations = "\n".join(f"REX_EXTERN({name});" for name in found)
-    (out / "consumer.cpp").write_text(HARNESS.replace("@DECLARATIONS@", declarations).replace("@FUNCTIONS@", "\n".join(found.values())))
+    compiled = {k: transform(k, v) if transform else v for k, v in found.items()}
+    (out / "consumer.cpp").write_text(HARNESS.replace("@DECLARATIONS@", declarations).replace("@FUNCTIONS@", "\n".join(compiled.values())))
     exe = out / "consumer.exe"
     command = [str(args.cxx), "-std=c++23", "-O1", "-fuse-ld=lld", "-msse4.1", "-I", str(args.sdk / "include"), "-I", str(args.sdk / "thirdparty/simde"), "-I", str(out), str(out / "consumer.cpp"), "-o", str(exe)]
     result = subprocess.run(command, capture_output=True, text=True, timeout=240)
@@ -167,6 +168,7 @@ def main():
                    "observedUtc": datetime.now(timezone.utc).isoformat(), "imageSha256": IMAGE_SHA,
                    "scriptSha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest().upper(),
                    "functionSha256": {k: hashlib.sha256(v.encode()).hexdigest().upper() for k,v in found.items()},
+                   "compiledFunctionSha256": {k: hashlib.sha256(v.encode()).hexdigest().upper() for k,v in compiled.items()},
                    "contextSha256": hashlib.sha256((args.sdk / "include/rex/ppc/context.h").read_bytes()).hexdigest().upper(),
                    "intrinsicsSha256": hashlib.sha256((args.sdk / "include/rex/ppc/intrinsics.h").read_bytes()).hexdigest().upper(),
                    "macrosSha256": hashlib.sha256((out / "fh2_macros.h").read_bytes()).hexdigest().upper(),
@@ -175,7 +177,7 @@ def main():
                    "gameLaunched": False, "sdkDllLoaded": False, "devicesInitialized": False, "queueExecuted": False,
                    "hookAdded": False, "sceneReplayEstablished": False, "runtimeReceiverEstablished": False})
     (out / "result.json").write_text(json.dumps(record, indent=2)+"\n")
-    print(f"ORDERING PASS: {record['checks']} actual camera overwrite/cache checks,12 cases,26 guest functions; CULLING {'HOLD' if hold else 'PASS'} ({record['projectionPlaneDisagreements']} projection/plane disagreements, {record['baselineMissingInterior']} missing baseline interiors); no game/device/queue")
+    print(f"ORDERING PASS: {record['checks']} actual camera overwrite/cache checks,12 cases,{len(found)} guest functions; CULLING {'HOLD' if hold else 'PASS'} ({record['projectionPlaneDisagreements']} projection/plane disagreements, {record['baselineMissingInterior']} missing baseline interiors); no game/device/queue")
     return 2 if hold else 0
 
 
