@@ -27,7 +27,8 @@ SELECTED = {"sub_823F2FF0", "sub_82F44FB0", "sub_82F44F90", "sub_82F43678",
             "sub_82F4EE30", "sub_82F4D818", "sub_823FBA80", "sub_82456A60", "sub_8244DFA0",
             "sub_82F46458", "sub_82F47188", "sub_82F42C50", "sub_82475C80", "sub_82F5AF30",
             "sub_82476B00", "sub_82475C48", "sub_823F59C8", "sub_82470088", "sub_82400E48",
-            "sub_82401630", "sub_82473410"}
+            "sub_82401630", "sub_82473410",
+            "sub_82EF12D0", "sub_82450DE8", "sub_8244F4A0", "sub_8244EF48", "sub_8244ED60", "sub_8244EEE8", "sub_8244DFA8", "sub_8244EF08", "sub_824515D8", "sub_82451138", "sub_824513C0", "sub_824827F8", "sub_824501A0", "sub_8244EC00", "sub_8244FA90", "sub_8244FE60"}
 
 
 def main():
@@ -194,6 +195,36 @@ def main():
     sequence("sub_82F42C50", 39, ["lvx128 v63,r30,r11", "stvx128 v63,r0,r31", "lfs f13,8(r31)", "fneg f13,f13", "stfs f13,8(r31)"])
     sequence("sub_82F42C50", 50, ["stfs f0,16(r31)", "stvx128 v63,r0,r31", "stfs f0,24(r31)"])
 
+    # Visibility dispatch, ordinary AABB consumer and distinct mask/byte storage.
+    sequence("sub_82EF12D0", 32, ['li r4,0', 'lwz r5,16(r31)', 'lwz r3,8(r31)', 'bl 0x82c023a0'])
+    sequence("sub_82EF12D0", 81, ['li r11,2', 'addi r10,r31,1440', 'addi r9,r31,8096', 'addi r8,r31,7584'])
+    sequence("sub_82EF12D0", 89, ['stfs f30,384(r11)', 'stfs f31,388(r11)', 'stw r10,208(r11)', 'stw r9,212(r11)', 'stw r7,368(r11)', 'stw r8,360(r11)'])
+    sequence("sub_82EF12D0", 114, ['lwz r10,0(r8)', 'rlwinm r11,r10,2,0,29', 'lwzx r11,r11,r7', 'mulli r11,r11,344', 'add r11,r11,r31', 'addi r11,r11,14036', 'lwz r9,140(r11)', 'addi r9,r9,3', 'rlwinm r9,r9,2,0,29', 'stwx r10,r9,r11', 'lwz r9,140(r11)', 'addi r9,r9,1', 'stw r9,140(r11)'])
+    sequence("sub_82EF12D0", 150, ['addi r29,r31,14372', 'li r30,2', 'li r4,1', 'mr r3,r29'])
+    sequence("sub_82EF12D0", 167, ['lbz r9,9302(r31)', 'addi r7,r31,8096', 'lwz r11,44(r31)', 'addi r10,r31,7584', 'stw r7,100(r1)', 'addi r8,r31,1440', 'lfs f0,9296(r31)', 'stw r10,248(r1)', 'stfs f0,260(r1)', 'stw r8,96(r1)', 'stb r9,268(r1)', 'addi r4,r31,48', 'stw r11,256(r1)'])
+    sequence("sub_82EF12D0", 188, ['lwz r11,9376(r31)', 'addi r6,r1,96', 'lwz r10,9380(r31)', 'mr r3,r31', 'lwz r9,176(r31)', 'fmr f2,f31', 'fmr f1,f30', 'stw r11,236(r1)', 'stw r10,240(r1)', 'stw r9,232(r1)', 'bl 0x82450de8'])
+    sequence("sub_82450DE8", 4, ['li r11,5', 'lwz r10,8(r6)', 'mr r30,r6', 'fmr f31,f1', 'srawi r9,r11,31', 'addi r24,r6,8'])
+    sequence("sub_82450DE8", 48, ['mr r4,r30', 'mr r3,r31', 'bl 0x8244f4a0'])
+    sequence("sub_8244EF48", 233, ['lwz r4,4(r29)', 'rlwinm r6,r30,5,0,26', 'addi r7,r1,112', 'lwz r5,0(r29)', 'add r6,r6,r4', 'lbz r10,172(r29)', 'addi r4,r1,116', 'stw r7,92(r1)', 'mulli r11,r30,192', 'lwz r9,224(r31)', 'stw r4,84(r1)', 'stb r27,103(r1)', 'li r24,0', 'addi r8,r31,192', 'mr r7,r30', 'stb r24,112(r1)', 'add r5,r11,r5', 'stw r24,116(r1)', 'mr r4,r28', 'mr r3,r31', 'bl 0x8244ed60'])
+    sequence("sub_8244EF48", 258, ['li r5,1', 'bl 0x8244ef08'])
+    sequence("sub_8244EF48", 282, ['mulli r11,r30,5', 'stw r24,160(r1)', 'stw r27,172(r1)', 'lwz r10,13844(r31)', 'stb r9,176(r1)', 'add r11,r11,r29', 'addi r4,r1,160', 'rlwinm r11,r11,4,0,27', 'add r3,r11,r10', 'bl 0x824515d8'])
+    sequence("sub_8244EF48", 296, ['li r5,0', 'bl 0x8244ef08'])
+    sequence("sub_8244ED60", 56, ["lfs f0,104(r1)","fneg f0,f0","lfs f13,120(r1)","fneg f13,f13","stfs f0,120(r1)","stfs f13,104(r1)"])
+    sequence("sub_8244ED60", 63, ['lbz r11,113(r30)', 'cmplwi r11,0', 'beq 0x8244ee80', 'addi r5,r1,96', 'addi r4,r1,112', 'mr r3,r24', 'bl 0x8244fa90', 'clrlwi. r11,r3,24', 'beq 0x8244ede0'])
+    sequence("sub_8244ED60", 87, ['addi r11,r1,96', 'addi r10,r1,112', 'mr r3,r31', 'lvx128 v2,r0,r11', 'lvx128 v1,r0,r10', 'bl 0x82451138', 'addic r11,r3,-1', 'subfe r3,r11,r3'])
+    sequence("sub_8244EEE8", 0, ['li r11,1', 'lwz r10,68(r3)', 'slw r11,r11,r4', 'and r11,r10,r11', 'addic r10,r11,-1', 'subfe r3,r10,r11', 'blr '])
+    sequence("sub_8244DFA8", 0, ['li r11,1', 'lwz r10,72(r3)', 'slw r11,r11,r4', 'and r11,r10,r11', 'addic r10,r11,-1', 'subfe r3,r10,r11', 'blr '])
+    sequence("sub_8244EF08", 0, ['add r11,r4,r3', 'clrlwi r10,r5,24', 'lbz r9,76(r11)', 'cmplw cr6,r10,r9', 'beqlr cr6', 'li r9,1', 'cmplwi cr6,r10,0', 'stb r9,54(r3)', 'stb r5,76(r11)', 'lwz r11,108(r3)', 'beq cr6,0x8244ef3c', 'addi r11,r11,1', 'b 0x8244ef40', 'addi r11,r11,-1', 'stw r11,108(r3)', 'blr '])
+    sequence("sub_824515D8", 57, ['lwz r11,4(r31)', 'addi r11,r11,20', 'stw r11,4(r31)'])
+    sequence("sub_82451138", 151, ['cmplwi cr6,r11,3', 'bne cr6,0x824513a4', 'li r3,0', 'blr ', 'addi r11,r11,-1', 'cntlzw r11,r11', 'rlwinm r11,r11,27,31,31', 'xori r11,r11,1', 'addi r3,r11,1', 'blr '])
+    sequence("sub_824513C0", 41, ['fadds f12,f12,f9', 'fsubs f13,f12,f13', 'fcmpu cr6,f13,f0', 'bgt cr6,0x8245148c', 'addi r10,r10,1', 'addi r11,r11,16', 'cmplw cr6,r10,r6', 'blt cr6,0x8245140c', 'li r3,1', 'blr ', 'li r3,0', 'blr '])
+    sequence("sub_824827F8", 13, ['addi r29,r31,4', 'addi r28,r31,340', 'mr r6,r29', 'lfs f2,184(r31)', 'lfs f1,180(r31)', 'bl 0x82450de8'])
+    expect(struct.unpack_from(">4f", raw, 0x13F47C0) == (1.,1.,-1.,1.), "Ordinary AABB conversion vector changed")
+    expect(tuple(struct.unpack_from(">16I", raw, 0x2486A8)) == (1,1,1,1,1,1,1,1,1,0,1,1,1,1,1,1), "Visibility worker grouping table changed")
+
+    sequence("sub_8244FA90", 11, ["lvx128 v63,r0,r4","lvx128 v62,r0,r5","addi r10,r1,80","addi r11,r11,2888"])
+    sequence("sub_8244FE60", 0, ['lis r11,-32256', 'lfs f13,20(r3)', 'lfs f0,3152(r11)', 'fcmpu cr6,f13,f0', 'bge cr6,0x8244fe7c', 'li r3,1', 'blr ', 'lvx128 v63,r0,r3', 'addi r11,r1,-16', 'lvx128 v62,r0,r4', 'vsubfp128 v63,v62,v63', 'lfs f0,16(r3)', 'lfs f13,24(r3)', 'li r3,1', 'fmuls f13,f13,f1', 'vmsum3fp128 v63,v63,v63', 'stvx128 v63,r0,r11', 'lfs f12,-16(r1)', 'fmuls f0,f0,f12', 'fcmpu cr6,f0,f13', 'blelr cr6', 'li r3,0', 'blr '])
+
     def word(address):
         return struct.unpack_from(">I", raw, address-0x82000000)[0]
 
@@ -273,6 +304,17 @@ def main():
                                        "directStoredProjectionGetterFound":False,
                                        "cullingConstruction":"symmetric FOV reconstruction",
                                        "gpuProjectionDeliveryEstablished":False},
+              "visibilityTrace":{"dispatcher":"82EF12D0","consumer":"82450DE8",
+                                 "workerCount":2,"workerStride":344,"workerPayloadOffset":4,
+                                 "context":{"frustumPointer":0,"metadataPointer":4,"viewIds":8,"viewCount":136},
+                                 "workerGroupZeroIds":[9],"ordinaryInstanceConsumer":"8244EF48 ->8244ED60 ->82451138",
+                                 "ordinaryBoundsConversion":"negate and swap Z min/max before AABB helper",
+                                 "metadataGate":"8244FA90 ->8244FE60: weight16*distanceSquared <= factor24*halfExtentSquared; field20<0 bypass",
+                                 "inputMaskOffset":68,"secondMaskOffset":72,"visibilityByteBase":76,
+                                 "visibilityCountOffset":108,"dirtyByteOffset":54,
+                                 "bucketHeaderStride":16,"bucketIndex":"5*viewId+category","outputRecordStride":20,
+                                 "resourceParticipationBitset":"packet pointer+8 with length+16; separate from instance masks",
+                                 "dispatcherExecuted":False,"workerExecuted":False,"gpuProjectionDeliveryEstablished":False},
               "kind1ExtentProducerEstablished":False, "cullingAdmitted":False,
               "sourceBackedControl":{"producer":"82F50780", "kind":2,
                                      "storedExtents":[-4,4,4,-4], "near":values[0x8224FA5C],"far":7.5},
