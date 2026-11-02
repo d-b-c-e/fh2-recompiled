@@ -1,5 +1,12 @@
 # FH2 Data Out: guest state and a first implementation path (source only, 2026-10-23)
 
+Current2026-11-02 checkpoint: this historical plan has a compiled native
+implementation and headless qualification in [combined offline evidence](COMBINED-OFFLINE-20261102.md).
+[Live sender configuration](TELEMETRY-SENDER-20261102.md) and
+[vector investigation](TELEMETRY-VECTORS-20261102.md) add bounded evidence;
+local-player/pause scope and live SimHub/device acceptance remain unverified.
+The original plan below records its earlier assumptions, not current build status.
+
 This is a plan for miho 370655. Nothing has been built or run. It is kept separate from the refusal-site fix (`muzu/fh2-gear-refusal-20261023`), which it does not touch. It builds on Nepo's feasibility notes (hub `artifacts/fh2-telemetry-feasibility-nepo-20261023`, which find a host seam but no sender) and on Tile's reader offsets.
 
 ## Where the values live (guest evidence)
