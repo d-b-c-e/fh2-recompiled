@@ -1,5 +1,11 @@
 # Existing native asymmetric camera API: different depth contract
 
+The [flag follow-up](CAMERA-FLAG-CONTRACT-20261102.md) now explains all4 tested
+mathematical branches and the6 nonfinite survey cases, checks flag setter dirty
+behavior, and traces a static flag1/symmetric-mode0 feed. Live receiver/depth/
+culling selection remains unverified. Its extended tool passes4,656 checks;
+the original2,400-check receipt below is preserved separately.
+
 The base camera already has an asymmetric perspective builder. Its tested
 unflipped branch uses **near depth0 /far depth1**, whereas the earlier symmetric
 builder uses **near1 /far0**. These APIs cannot be substituted blindly. This

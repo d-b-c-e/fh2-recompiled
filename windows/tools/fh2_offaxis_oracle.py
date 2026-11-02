@@ -14,7 +14,9 @@ import struct
 import subprocess
 
 IMAGE_SHA = "3708A857A4EEC4BC673DF3CD0F00D304702E67B7A5570B9D34C1803CA2102244"
-WANTED = {"sub_823F2FF0", "sub_82F43678"}
+WANTED = {"sub_823F2FF0", "sub_82F43678", "sub_82F43618", "sub_823FF818"}
+TRACE_NAMES = {"sub_8262CC40", "sub_8262D298", "sub_8262D0F0", "sub_82F45078", "sub_82F45060",
+               "sub_82F44CC0", "sub_82F44CA8"}
 HARNESS = r'''
 #include <cstdint>
 #include <cstring>
@@ -41,6 +43,12 @@ int main(int argc,char** argv){
  if(!base||!VirtualAlloc(base+0x40000000,0x100000,MEM_COMMIT,PAGE_READWRITE)||!VirtualAlloc(base+0x82000000,image.size(),MEM_COMMIT,PAGE_READWRITE))return 4;
  std::memcpy(base+0x82000000,image.data(),image.size());constexpr uint32_t camera=0x40010000,stack=0x40080000;
  struct Rect{float l,t,r,b;};struct Clips{float n,f;};bool first=true;int cases=0;
+ for(uint32_t flag:{0u,1u,2u,255u,256u,257u,0xFFFFFFFFu,0x80000000u}){
+  std::memset(base+camera,0xA7,512);base[camera+480]=0;uint8_t expected[512];std::memcpy(expected,base+camera,512);expected[272]=uint8_t(flag);
+  PPCContext ctx{};ctx.r1.u32=stack;ctx.r3.u32=camera;ctx.r4.u32=flag;sub_82F43618(ctx,base);
+  if(std::memcmp(expected,base+camera,512)||ctx.r1.u32!=stack)return 8;
+  sub_823FF818(ctx,base);if(ctx.r3.u32!=uint8_t(flag)||std::memcmp(expected,base+camera,512))return 9;
+ }
  std::printf("[");
  for(bool fixed:{false,true})for(int mode:{0,1})for(int flip:{0,1})
  for(Clips c:{Clips{.05f,1000.f},Clips{.5f,20.f},Clips{2.f,2.1f}})
@@ -49,7 +57,7 @@ int main(int argc,char** argv){
   PPCContext ctx{};ctx.r1.u32=stack;ctx.r3.u32=camera;ctx.f1.f64=r.l;ctx.f2.f64=r.t;ctx.f3.f64=r.r;ctx.f4.f64=r.b;
   sub_823F2FF0(ctx,base);
   if(Get(base,camera+240)!=r.l||Get(base,camera+244)!=r.t||Get(base,camera+248)!=r.r||Get(base,camera+252)!=r.b||base[camera+480]!=1)return 5;
-  Put(base,camera+208,c.n);Put(base,camera+212,c.f);base[camera+272]=uint8_t(flip);ctx.r4.u32=mode;
+  Put(base,camera+208,c.n);Put(base,camera+212,c.f);ctx.r4.u32=flip;sub_82F43618(ctx,base);ctx.r4.u32=mode;
   sub_82F43678(ctx,base);
   if(ctx.r1.u32!=stack||std::memcmp(pose,base+camera+16,64)||base[camera+480]!=1||base[camera+8]||base[camera+9]||base[camera+10]||base[camera+11]!=1||
      base[camera+12]||base[camera+13]||base[camera+14]||base[camera+15]!=mode)return 6;
@@ -70,22 +78,46 @@ def main():
     raw = args.image.read_bytes()
     if hashlib.sha256(raw).hexdigest().upper() != IMAGE_SHA:
         raise ValueError("Wrong title image")
-    for slot, target in {44: 0x82F46988, 48: 0x82F43678, 76: 0x823F2FF0}.items():
+    slots = {44: 0x82F46988, 48: 0x82F43678, 76: 0x823F2FF0, 80: 0x82F43618, 84: 0x823FF818}
+    for slot, target in slots.items():
         if struct.unpack_from(">I", raw, 0x8224FBDC - 0x82000000 + slot)[0] != target:
             raise ValueError("Base camera vtable changed")
-    found = {}
+    found, trace = {}, {}
     for path in args.generated.glob("*.cpp"):
         text = path.read_text(encoding="utf-8-sig")
         matches = list(re.finditer(r"DEFINE_REX_FUNC\((\w+)\)", text))
         for i, match in enumerate(matches):
-            if match[1] not in WANTED:
+            if match[1] not in WANTED | TRACE_NAMES:
                 continue
             body = text[match.start():matches[i + 1].start() if i + 1 < len(matches) else None]
+            if match[1] in TRACE_NAMES:
+                if match[1] in trace:
+                    raise ValueError("Duplicate static trace function")
+                trace[match[1]] = body
+                continue
             if match[1] in found or re.search(r"\b(?:sub_[0-9A-F]{8}|__\w+)\(ctx, base\);|REX_CALL_INDIRECT|REX_TAIL_CALL", body):
-                raise ValueError("Expected two unique leaf math/setter functions")
+                raise ValueError("Expected unique leaf math/setter/getter functions")
             found[match[1]] = body
-    if set(found) != WANTED:
+    if set(found) != WANTED or set(trace) != TRACE_NAMES:
         raise ValueError("Missing native extent setter/builder")
+    comments = {name: re.findall(r"\t// (.+)", body) for name, body in trace.items()}
+    sequence = ["lwz r3,40(r31)", "mr r4,r29", "lwz r11,0(r3)", "lwz r11,80(r11)", "mtctr r11", "bctrl ",
+                "lwz r3,40(r31)", "li r4,0", "lwz r11,0(r3)", "lwz r11,44(r11)", "mtctr r11", "bctrl "]
+    if comments["sub_8262CC40"][60:72] != sequence or comments["sub_8262CC40"][7] != "mr r29,r4":
+        raise ValueError("Camera feed no longer propagates flag then selects symmetric mode0")
+    for name, index in (("sub_8262D0F0", 15), ("sub_8262D298", 11)):
+        if comments[name][index:index+3] != ["li r4,1", "mr r3,r31", "bl 0x8262cc40"]:
+            raise ValueError("Known camera feed caller no longer supplies flag1")
+    if comments["sub_82F45078"][13] != "stb r30,4(r3)" or comments["sub_82F45060"] != ["lwz r11,0(r3)", "lbz r4,4(r4)", "lwz r11,80(r11)", "mtctr r11", "bctr "]:
+        raise ValueError("Deferred flag byte contract changed")
+    if comments["sub_82F44CC0"][13] != "stw r30,4(r3)" or comments["sub_82F44CA8"] != ["lwz r11,0(r3)", "lwz r4,4(r4)", "lwz r11,44(r11)", "mtctr r11", "bctr "]:
+        raise ValueError("Deferred symmetric mode word contract changed")
+    words = {0x8262CD3C: 0x816B0050, 0x8262CD4C: 0x38800000, 0x8262CD54: 0x816B002C,
+             0x8262D12C: 0x38800001, 0x8262D2C4: 0x38800001,
+             0x82F43618: 0x98830110, 0x823FF818: 0x88630110}
+    for address, expected in words.items():
+        if struct.unpack_from(">I", raw, address-0x82000000)[0] != expected:
+            raise ValueError(f"Static image instruction changed at {address:08X}")
     out = args.out.resolve()
     out.mkdir(parents=True, exist_ok=False)
     macros, keep = [], False
@@ -106,19 +138,24 @@ def main():
     (out / "run.log").write_text(result.stdout + result.stderr)
     result.check_returncode()
     cases = json.loads(result.stdout)
-    checks = 0
+    checks, unflipped_checks = 0, 0
     for c in cases:
-        if c["flag272"]:
-            continue  # survey only: do not invent the nonzero flag's extent contract
         n, f = c["near"], c["far"]
         l, t, r, b = c["extents"]
         q = 1 if c["mode"] == 0 else -1
-        expected = [2*n/(r-l), 0, 0, 0, 0, 2*n/(t-b), 0, 0,
-                    -q*(r+l)/(r-l), -q*(t+b)/(t-b), q*f/(f-n), q, 0, 0, -n*f/(f-n), 0]
+        if c["flag272"]:
+            l, r, b = -l, -r, -b
+            if c["mode"] == 0:
+                t = -t  # mode1/nonzero flag leaves top unchanged in actual guest code
+        expected = [2*n/(r-l), 0, 0, 0, 0, 2*n/(t-b) if t != b else None, 0, 0,
+                    -q*(r+l)/(r-l), -q*(t+b)/(t-b) if t != b else None, q*f/(f-n), q, 0, 0, -n*f/(f-n), 0]
         for actual, want in zip(c["matrix"], expected):
-            if actual is None or not math.isclose(actual, want, rel_tol=3e-6, abs_tol=3e-6):
+            if (want is None and actual is not None) or (want is not None and (actual is None or not math.isclose(actual, want, rel_tol=3e-6, abs_tol=3e-6))):
                 raise ValueError(f"Native off-axis convention mismatch: {c}")
             checks += 1
+            unflipped_checks += not c["flag272"]
+        if t == b:
+            continue  # explicitly classified nonfinite matrices are never used for corners
         matrix = c["matrix"]
         for z, depth in ((n, 0), (f, 1)):
             for x, sign_x in ((l, -1), (r, 1)):
@@ -129,9 +166,13 @@ def main():
                         if not math.isclose(actual, want, rel_tol=3e-6, abs_tol=3e-6):
                             raise ValueError("Native asymmetric frustum corner/depth failed")
                         checks += 1
+                        unflipped_checks += not c["flag272"]
     report = {"imageSha256": IMAGE_SHA, "observedUtc": datetime.now(timezone.utc).isoformat(), "cases": cases,
-              "conventionalMatrixChecks": checks, "nonfiniteSurveyCases": sum(None in c["matrix"] for c in cases),
-              "baseVtable": "8224FBDC", "vtableSlots": {"44": "82F46988", "48": "82F43678", "76": "823F2FF0"},
+              "conventionalMatrixChecks": unflipped_checks, "allFlagAlgebraChecks": checks,
+              "flagSetterGetterStateCases": 8, "nonfiniteSurveyCases": sum(None in c["matrix"] for c in cases),
+              "baseVtable": "8224FBDC", "vtableSlots": {str(k): f"{v:08X}" for k, v in slots.items()},
+              "staticFunctionSha256": {k: hashlib.sha256(v.encode()).hexdigest().upper() for k, v in trace.items()},
+              "staticInstructionWords": {f"{k:08X}": f"{v:08X}" for k, v in words.items()},
               "scriptSha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest().upper(),
               "functionSha256": {k: hashlib.sha256(v.encode()).hexdigest().upper() for k, v in found.items()},
               "contextSha256": hashlib.sha256((args.sdk / "include/rex/ppc/context.h").read_bytes()).hexdigest().upper(),
@@ -141,7 +182,7 @@ def main():
               "gameLaunched": False, "sdkDllLoaded": False, "devicesInitialized": False,
               "nativeHookAdded": False, "sceneCutEstablished": False, "runtimeUnitsEstablished": False}
     (out / "oracle.json").write_text(json.dumps(report, indent=2) + "\n")
-    print(f"PASS: {checks} unflipped off-axis matrix/corner/depth checks; {len(cases)} branch survey cases, {report['nonfiniteSurveyCases']} nonfinite (not admitted)")
+    print(f"PASS: {checks} all-flag algebra/corner/depth checks ({unflipped_checks} unflipped), 8 flag state cases; {len(cases)} survey cases, {report['nonfiniteSurveyCases']} nonfinite (not admitted)")
 
 
 if __name__ == "__main__":
