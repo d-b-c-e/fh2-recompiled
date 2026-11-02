@@ -6,6 +6,10 @@ is `499e0579b2e8a52f68b99748198816be7217ecee`. All 15 existing options match tha
 SDK's names, types and numeric bounds. This is a source and inert-file check;
 it does not qualify an installed executable, wheel, pedals, shifter or forces.
 
+The later app7ce460f/SDKbddeb167 native candidate retains these option mappings
+and includes the SDK string-save fix. It passes 200 save/load checks through its
+built DLL on inert files; no game or device acceptance is implied.
+
 ## Use
 
 PowerShell 7 or later is required. With no setting arguments, the helper only
@@ -75,11 +79,12 @@ this port deliberately retains the earlier helper's option surface.
   string values with quotes without escaping their contents at this exact pin.
   The helper correctly escapes backslashes and quotes, but a later SDK save may
   invalidate such strings. Prefer USB IDs or simple name fragments for now.
-  No SDK patch or runtime round-trip claim is included here.
+  This caveat applies to the earlier SDK499 binary pair.
 
 A subsequent [source patch and offline round-trip fixture](../windows/patches/README.md)
-fix this SDK serialization issue. It is not included in the built SDK499 runtime;
-the caution above still applies to that candidate.
+fix this SDK serialization issue. It is included in the built SDKbddeb167 runtime
+and passes 200 inert-file checks through that DLL. The caution above still
+applies to the retained SDK499 candidate; a live game round trip remains unverified.
 
 ## Verification and remaining gates
 

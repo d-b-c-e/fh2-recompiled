@@ -50,9 +50,22 @@ and passes `git bundle verify`. SHA-256:
 `95534D66928C89CC59165D3188A1058153043D1B4E470859624B9659B8B5F6D0`.
 The patch is published source; the bundle and native fixture outputs stay private.
 
-This is a qualified source follow-up, **not included in the built SDK499 DLL**.
-The new source gitlink awaits a native build in a separate tree under Guna
-GO491322 (up to90min, jobs2, named operator vuro). Preserve the
-passing `6c49f9c`/SDK499 payload. Physical safety, live config round trips inside
-FH2, gameplay, force feedback and owner acceptance remain unverified. This patch
-does not broaden the existing merger's supported syntax or change its file writer.
+The fix is now included in the app7ce460f/SDKbddeb167 native candidate. Fresh
+codegen/native build and generated gear/reverse/telemetry checks pass. A second
+fixture links only the new runtime import library (no production cvar.cpp in
+the executable) and passes all200 checks through the **built DLL**.
+Build04's final fixture compile initially lacked the fmt include path. That
+failed receipt remains intact; only harness include/link setup was corrected.
+`qualification-05/result.json` pins the04 receipt and every unchanged output
+hash, then records the passing DLL check and verified lease cleanup. Its SHA-256
+is `C67224CED0AD2B3D74388D80DB4A96D773A5F9B335F4C178C7EAFEC2E45AF762`.
+Exact worker: `Check-CvarRuntime-02.ps1`; qualification runner:
+`Qualify-CvarRuntime.ps1`, both in the evidence root above. Guna GO491322,
+native jobs2/focused fixture jobs1, finished `2026-11-02T07:30:08Z`.
+
+See the [candidate handoff](../../docs/HANDOFF-WINDOWS-20261102.md) for matching
+binary hashes and private payload. The older `6c49f9c`/SDK499 payload is retained
+and still has the original escaping bug. Physical safety, live config round
+trips inside FH2, gameplay, force feedback and owner acceptance remain
+unverified. This patch does not broaden the existing merger's supported syntax
+or change its file writer.

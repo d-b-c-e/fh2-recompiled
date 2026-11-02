@@ -5,8 +5,9 @@ gear/reverse/telemetry checks. See the [current handoff](../docs/HANDOFF-WINDOWS
 for its exact app/SDK pair, private payload and remaining runtime gates.
 The [wheel settings helper](../docs/WHEEL-SETUP-20261102.md) edits only supplied
 options with backups; its file checks do not qualify physical inputs or forces.
-The source gitlink now includes the SDK string-save fix `bddeb167`; its new
-native build is pending. The earlier passing binary pair remains SDK499.
+The app7ce460f/SDKbddeb167 candidate includes the string-save fix and passes the
+native build, generated checks and 200 save/load checks through its built DLL.
+The earlier app6c49/SDK499 binary pair is retained separately.
 Agent game/device testing remains held pending the physical output safety route.
 
 Upstream FH2 Recompiled targets Android and Linux. This folder builds the same game for
