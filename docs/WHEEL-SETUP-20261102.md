@@ -1,5 +1,10 @@
 # FH2 wheel settings helper - November 2, 2026
 
+Main integration note: this helper is present in main for configuring the
+separately qualified SDK499e0579/bddeb167 candidates. Main's older SDK1e8968f
+has no `wheel_*` consumer; no SDK pin or installed executable changes with this
+helper-only integration. Pass the matching executable's config path explicitly.
+
 The PowerShell helper is ported from `ec3e04d` (published sync branch tip
 `e60e457`) onto app `6c49f9cdf1bebc188740fe47bf95ee4aabc735de`, whose SDK gitlink
 is `499e0579b2e8a52f68b99748198816be7217ecee`. All 15 existing options match that

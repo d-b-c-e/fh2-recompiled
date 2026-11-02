@@ -1,5 +1,11 @@
 # FH2 Recompiled — Windows build (ShiftGlue SDK)
 
+The [wheel settings helper](../docs/WHEEL-SETUP-20261102.md) safely edits supplied
+options with backups. Its audited wheel consumer is SDK499e0579 (and the later
+bddeb167 candidate), not main's older SDK1e8968f, which has no `wheel_*` settings.
+Use the config beside the matching wheel-capable executable explicitly; this
+helper-only integration does not change main's SDK or qualify a wheel/device.
+
 Upstream FH2 Recompiled targets Android and Linux. This folder builds the same game for
 **Windows x64** on the [ShiftGlue SDK](https://github.com/arcanite24/shiftglue-sdk), the
 ReXGlue 0.10.0 fork behind [Pinyon Shift](https://github.com/arcanite24/pinyon-shift)
