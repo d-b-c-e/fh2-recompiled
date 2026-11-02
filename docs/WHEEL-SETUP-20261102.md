@@ -77,6 +77,10 @@ this port deliberately retains the earlier helper's option surface.
   invalidate such strings. Prefer USB IDs or simple name fragments for now.
   No SDK patch or runtime round-trip claim is included here.
 
+A subsequent [source patch and offline round-trip fixture](../windows/patches/README.md)
+fix this SDK serialization issue. It is not included in the built SDK499 runtime;
+the caution above still applies to that candidate.
+
 ## Verification and remaining gates
 
 `pwsh -NoProfile -File windows/tools/Test-Fh2Wheel.ps1` passes **42 checks** on

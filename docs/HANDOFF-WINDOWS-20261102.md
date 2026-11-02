@@ -76,6 +76,15 @@ launcher, saves or owner config were copied; this is not a complete game package
 
 ## Image dump, installed baseline and next action
 
+Follow-up source: [SDK string serialization patch](../windows/patches/README.md),
+local SDK successor `bddeb1670c2b6890795653076880dc1b9196b7a5`, fixes escaping
+in all three TOML writers. Actual production-cvar fixtures reproduce base499's
+parse failure and pass 200 checks with the fix, including real SaveConfig/LoadConfig
+on inert project files. The patch applies cleanly to499; its exact source bundle
+is retained privately. No SDK remote push was made. This follow-up is not in the
+compiled DLL or app gitlink, which remain499; next full-build integration needs
+a separate tree and fresh CPU slot. Preserve the passing payload above.
+
 The existing offline image route remains
 `windows/tools/Test-DiscRevision.ps1 -Xex <default.xex> -ImageOut <private-path>`.
 Expanded image SHA-256:

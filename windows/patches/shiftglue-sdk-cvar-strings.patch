@@ -1,0 +1,143 @@
+From bddeb1670c2b6890795653076880dc1b9196b7a5 Mon Sep 17 00:00:00 2001
+From: d-b-c-e <anthony.mason1@gmail.com>
+Date: Mon, 2 Nov 2026 00:58:10 -0600
+Subject: [PATCH] fix(config): escape string values in every TOML writer
+
+---
+ src/core/cvar.cpp             | 30 +++++++++++++++---------------
+ tests/unit/core/cvar_test.cpp | 29 +++++++++++++++++++++++++++++
+ 2 files changed, 44 insertions(+), 15 deletions(-)
+
+diff --git a/src/core/cvar.cpp b/src/core/cvar.cpp
+index ad656677..6f16a563 100644
+--- a/src/core/cvar.cpp
++++ b/src/core/cvar.cpp
+@@ -15,6 +15,7 @@
+ #include <iterator>
+ #include <mutex>
+ #include <optional>
++#include <sstream>
+ #include <string_view>
+ #include <unordered_map>
+ 
+@@ -57,6 +58,16 @@ std::unordered_map<std::string, size_t>& GetRegistryIndex() {
+   return index;
+ }
+ 
++std::string TOMLLiteral(const FlagEntry& entry) {
++  if (entry.type != FlagType::String) {
++    return entry.getter();
++  }
++  std::ostringstream output;
++  // Keep one physical line per cvar, escaping paths, quotes and control bytes.
++  output << toml::toml_formatter{toml::value{entry.getter()}, toml::format_flags::none};
++  return output.str();
++}
++
+ // Values that arrived before their cvar was registered; runtime-loaded
+ // modules register cvars long after Init/LoadConfig.
+ struct PendingValues {
+@@ -550,11 +561,7 @@ std::string SerializeToTOML() {
+   std::string result;
+   for (const auto& entry : GetRegistryStorage()) {
+     if (entry.getter() != entry.default_value) {
+-      if (entry.type == FlagType::String) {
+-        result += entry.name + " = \"" + entry.getter() + "\"\n";
+-      } else {
+-        result += entry.name + " = " + entry.getter() + "\n";
+-      }
++      result += entry.name + " = " + TOMLLiteral(entry) + "\n";
+     }
+   }
+   return result;
+@@ -565,11 +572,7 @@ std::string SerializeToTOML(std::string_view category) {
+   std::string result;
+   for (const auto& entry : GetRegistryStorage()) {
+     if (entry.category == category && entry.getter() != entry.default_value) {
+-      if (entry.type == FlagType::String) {
+-        result += entry.name + " = \"" + entry.getter() + "\"\n";
+-      } else {
+-        result += entry.name + " = " + entry.getter() + "\n";
+-      }
++      result += entry.name + " = " + TOMLLiteral(entry) + "\n";
+     }
+   }
+   return result;
+@@ -577,9 +580,6 @@ std::string SerializeToTOML(std::string_view category) {
+ 
+ std::string MergeIntoTOML(std::string_view existing) {
+   std::lock_guard lock(GetRegistryMutex());
+-  const auto literal = [](const FlagEntry& entry) {
+-    return entry.type == FlagType::String ? "\"" + entry.getter() + "\"" : entry.getter();
+-  };
+   const std::string newline = existing.find("\r\n") != std::string_view::npos ? "\r\n" : "\n";
+   std::string result;
+   std::unordered_map<std::string, bool> written;
+@@ -611,7 +611,7 @@ std::string MergeIntoTOML(std::string_view existing) {
+         if (it != GetRegistryIndex().end() && !written[key]) {
+           written[key] = true;
+           result += std::string(content.substr(0, at)) + key + " = " +
+-                    literal(GetRegistryStorage()[it->second]) + newline;
++                    TOMLLiteral(GetRegistryStorage()[it->second]) + newline;
+           continue;
+         }
+       }
+@@ -621,7 +621,7 @@ std::string MergeIntoTOML(std::string_view existing) {
+   std::string appended;
+   for (const auto& entry : GetRegistryStorage()) {
+     if (!written[entry.name] && entry.getter() != entry.default_value) {
+-      appended += entry.name + " = " + literal(entry) + newline;
++      appended += entry.name + " = " + TOMLLiteral(entry) + newline;
+     }
+   }
+   if (!appended.empty()) {
+diff --git a/tests/unit/core/cvar_test.cpp b/tests/unit/core/cvar_test.cpp
+index 3c2be069..62516896 100644
+--- a/tests/unit/core/cvar_test.cpp
++++ b/tests/unit/core/cvar_test.cpp
+@@ -12,6 +12,7 @@
+ 
+ #include <catch2/catch_approx.hpp>
+ #include <catch2/catch_test_macros.hpp>
++#include <toml++/toml.hpp>
+ 
+ #include <rex/cvar.h>
+ 
+@@ -558,6 +559,34 @@ TEST_CASE("cvar TOML serialization", "[cvar]") {
+   CHECK(toml.find("test_bool_flag") == std::string::npos);
+ }
+ 
++TEST_CASE("cvar strings round trip through every TOML writer", "[cvar]") {
++  rex::cvar::testing::ResetAllForTesting();
++  const std::vector<std::string> values = {
++      R"(path:\\?\HID#VID_0EB7&PID_0004)", "quote\" and slash\\", "'literal' and \"quotes\"",
++      "line\nreturn\rtab\tback\bform\f", std::string("nul\0end", 7), "controls\x01\x1F\x7F",
++      "Unicode caf\xC3\xA9", ""};
++  for (const auto& value : values) {
++    CAPTURE(value);
++    REXCVAR_SET(test_string_flag, value);
++    const auto check = [&](const std::string& text) {
++      const auto parsed = toml::parse(text);
++      REQUIRE(parsed["test_string_flag"].is_string());
++      CHECK(parsed["test_string_flag"].value<std::string>() == value);
++      // Embedded newline data must not become a TOML table/key boundary.
++      CHECK(text.find("\"\"\"") == std::string::npos);
++    };
++    check(rex::cvar::SerializeToTOML());
++    check(rex::cvar::SerializeToTOML("Test"));
++    const auto merged = rex::cvar::MergeIntoTOML(
++        "# host\r\nhost_schema = 27\r\ntest_string_flag = 'old'\r\n[section]\r\nkeep = 7\r\n");
++    check(merged);
++    CHECK(merged.starts_with("# host\r\nhost_schema = 27\r\n"));
++    CHECK(merged.ends_with("[section]\r\nkeep = 7\r\n"));
++    check(rex::cvar::MergeIntoTOML("[section]\nkeep = 7\n"));
++  }
++  rex::cvar::testing::ResetAllForTesting();
++}
++
+ TEST_CASE("cvar metadata integration test", "[cvar][integration]") {
+   rex::cvar::testing::ResetAllForTesting();
+ 
+-- 
+2.55.0.windows.5
+
