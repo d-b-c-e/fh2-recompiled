@@ -11,7 +11,8 @@ param(
     [Parameter(Mandatory)][string]$BuiltSdk,
     [Parameter(Mandatory)][string]$SourceSdk,
     [Parameter(Mandatory)][string]$Out,
-    [string]$Compiler = 'clang++.exe'
+    [string]$Compiler = 'clang++.exe',
+    [switch]$SaveResult
 )
 $ErrorActionPreference = 'Stop'
 $BuiltSdk = (Resolve-Path -LiteralPath $BuiltSdk).Path
@@ -56,7 +57,9 @@ try {
         "-I$SourceSdk/include", "-I$BuiltSdk/thirdparty/cli11/include", "-I$BuiltSdk/thirdparty/fmt/include",
         "-I$BuiltSdk/thirdparty/spdlog/include", "-I$BuiltSdk/thirdparty/tomlplusplus/include", $imports,
         "$BuiltSdk/out/win-amd64/fmt.lib", "$BuiltSdk/out/win-amd64/spdlog.lib")
-    foreach ($name in 'fh2_cvar_preserve_fixture', 'fh2_cvar_strings_fixture') {
+    $fixtures = @('fh2_cvar_preserve_fixture', 'fh2_cvar_strings_fixture')
+    if ($SaveResult) { $fixtures += 'fh2_cvar_save_result_fixture' }
+    foreach ($name in $fixtures) {
         $fixture = Join-Path $PSScriptRoot "$name.cpp"
         $receipt.fixtureSha256[$name] = (Get-FileHash -LiteralPath $fixture).Hash
         $exe = Join-Path $Out "$name.exe"
@@ -65,6 +68,12 @@ try {
         [IO.Directory]::CreateDirectory($data) | Out-Null
         Step "$name.run" $exe @($data)
         Get-Content -LiteralPath (Join-Path $Out "$name.run.log")
+    }
+    if ($SaveResult) {
+        # Compile the real overlay without linking/running UI, graphics or any window backend.
+        $compileOnly = @($common | Where-Object { $_ -notlike '*.lib' })
+        Step 'settings-overlay.compile' $compilerPath @($compileOnly + @("-I$BuiltSdk/thirdparty/imgui", "-I$BuiltSdk/thirdparty/simde",
+            '-c', "$SourceSdk/src/ui/overlay/settings_overlay.cpp", '-o', (Join-Path $Out 'settings-overlay.obj')))
     }
     $receipt.status = 'pass'
 } finally {

@@ -6,6 +6,9 @@ source candidate is **fb1822c99e63819f06d7dc44fafc943f52d8ed40**, retained at
 `windows/.local/cvar-preserve/sdk`, branch `vuro/cvar-preserve-20261102`.
 No SDK upstream push or native SDK DLL/app rebuild has been performed.
 
+A later [save-result follow-up](CONFIG-SAVE-RESULT-20261102.md) adds an explicit
+result API and overlay feedback on top of this source; it also remains uninstalled.
+
 ## Changed behavior
 
 The former MergeIntoTOML scanned physical lines. It could rewrite a

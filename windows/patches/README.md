@@ -6,6 +6,10 @@ input refusal, BOM/comment preservation and non-overwriting staging. It passes
 67 new preservation checks and the existing200. It has not replaced the
 qualified SDK gitlink, native DLL, app or private payload described below.
 
+[Save-result feedback](../../docs/CONFIG-SAVE-RESULT-20261102.md) is an additional
+patch on fb1822c9:18 actual failure/success checks and overlay object compile pass;
+rendered UI/native SDK integration remain pending. Keep the two patches in order.
+
 `shiftglue-sdk-cvar-strings.patch` fixes raw quoted strings in all three SDK
 TOML writers: both `SerializeToTOML` overloads and `MergeIntoTOML`, which backs
 `SaveConfig`. It reuses the vendored toml++ 3.4.0 formatter with no literal or
