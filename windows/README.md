@@ -5,6 +5,8 @@ gear/reverse/telemetry checks. See the [current handoff](../docs/HANDOFF-WINDOWS
 for its exact app/SDK pair, private payload and remaining runtime gates.
 The [wheel settings helper](../docs/WHEEL-SETUP-20261102.md) edits only supplied
 options with backups; its file checks do not qualify physical inputs or forces.
+The source gitlink now includes the SDK string-save fix `bddeb167`; its new
+native build is pending. The earlier passing binary pair remains SDK499.
 Agent game/device testing remains held pending the physical output safety route.
 
 Upstream FH2 Recompiled targets Android and Linux. This folder builds the same game for
@@ -25,7 +27,7 @@ not apply to a desktop GPU.
 | `fh2_manifest.toml` (same inputs, `windows/generated` output) | `overrides*.toml` (function boundaries) |
 | `src/main.cpp`, `fh2_toque.cpp`, `fh2_medidor.cpp` (from the prototype) | `src/fh2_correcoes.cpp`, `fh2_teste_entrada.cpp`, `fh2_captura.cpp` |
 | `rexglue_proto.cmake`, `tools/tabela_registro.py` (from the prototype) | |
-| `thirdparty/shiftglue-sdk` (submodule, local candidate `499e0579` based on Pinyon Shift 0.6.1's `59bc11f5`; see current handoff for source availability) | |
+| `thirdparty/shiftglue-sdk` (submodule, local candidate `bddeb167` based on Pinyon Shift 0.6.1's `59bc11f5`; see current handoff for source availability) | |
 
 ## Supported disc
 

@@ -82,8 +82,10 @@ in all three TOML writers. Actual production-cvar fixtures reproduce base499's
 parse failure and pass 200 checks with the fix, including real SaveConfig/LoadConfig
 on inert project files. The patch applies cleanly to499; its exact source bundle
 is retained privately. No SDK remote push was made. This follow-up is not in the
-compiled DLL or app gitlink, which remain499; next full-build integration needs
-a separate tree and fresh CPU slot. Preserve the passing payload above.
+compiled SDK499 DLL. The source gitlink is advanced to bddeb167; its new native
+build is pending under Guna GO491322 in a separate isolated tree (jobs2, up to
+90min, named operator vuro). Preserve the passing payload above. No game/device
+or owner installation is included in this slot.
 
 The existing offline image route remains
 `windows/tools/Test-DiscRevision.ps1 -Xex <default.xex> -ImageOut <private-path>`.

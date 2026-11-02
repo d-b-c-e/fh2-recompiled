@@ -14,8 +14,9 @@ Base SDK: `499e0579b2e8a52f68b99748198816be7217ecee`.
 Local successor: `bddeb1670c2b6890795653076880dc1b9196b7a5`.
 Patch SHA-256: `67DB71AC46884CF594FFC0BE330354AAB67A056BD80EBF3AA50E49FEB8A14CA2`.
 `git apply --check` passes against clean base499. Apply in an isolated SDK
-worktree; the original build tree, app gitlink and matching private payload
-remain on SDK499. No SDK upstream push or app-main promotion was made.
+worktree; the original build tree and matching private payload remain on SDK499.
+The source branch gitlink is now advanced to bddeb167 for a separate new build.
+No SDK upstream push or app-main promotion was made.
 
 The patch includes regression cases in the existing SDK cvar unit suite. That
 complete test target was not built here. Instead,
@@ -50,8 +51,8 @@ and passes `git bundle verify`. SHA-256:
 The patch is published source; the bundle and native fixture outputs stay private.
 
 This is a qualified source follow-up, **not included in the built SDK499 DLL**.
-The next integration needs the app gitlink/build identity advanced together and
-a new native build in a separate tree under a fresh CPU slot. Preserve the
+The new source gitlink awaits a native build in a separate tree under Guna
+GO491322 (up to90min, jobs2, named operator vuro). Preserve the
 passing `6c49f9c`/SDK499 payload. Physical safety, live config round trips inside
 FH2, gameplay, force feedback and owner acceptance remain unverified. This patch
 does not broaden the existing merger's supported syntax or change its file writer.
