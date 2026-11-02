@@ -104,8 +104,9 @@ That is not a newly identified concrete-instance constructor.
 
 `8244CC30` synchronizes resource state, updates its counter and can invoke
 resource virtual slots 44 and 68. The implementation that populates the
-resource body, and the concrete instance ultimately dispatched by
-`8244BE38` virtual byte offset 164, remain unresolved.
+resource body remains unresolved. The [procedural family continuation](INSTANCE-RECEIVER-20261102.md)
+locates nine RTTI-backed types with matching visibility fields and concrete
+byte-offset-164 targets; actual runtime selection by `8244BE38` is still unverified.
 
 A tempting RTTI match is explicitly excluded. Table `820017AC` names
 `Presentation_Unified::CTrackRenderModelInstance_Unified`, but its next complete

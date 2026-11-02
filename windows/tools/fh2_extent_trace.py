@@ -34,6 +34,24 @@ SELECTED = {"sub_823F2FF0", "sub_82F44FB0", "sub_82F44F90", "sub_82F43678",
             "sub_82426180", "sub_824265F8", "sub_824266B0", "sub_82426800", "sub_8244F418", "sub_8244DFC8", "sub_8244EBD8", "sub_82D35E18", "sub_82EE4578", "sub_82DA57F0", "sub_8244CC30", "sub_8244BDF0", "sub_824517A0", "sub_82477138"}
 
 
+# Source-backed procedural family; a table match does not establish live selection.
+# ctor, table, RTTI, slot20, slot48, slot164, allocator, stride
+PROCEDURAL_FAMILY = [
+    ("sub_82FA92B0", 0x8200267C, ".?AVCProceduralCharacters@proceduralGeometry@@", 0x82F12860, 0x8246CE50, 0x8246A250, "sub_82FA9718", 160),
+    ("sub_82FA8378", 0x82252BBC, ".?AVCProceduralPoints@proceduralGeometry@@", 0x82F12860, 0x82F12860, 0x82F86A58, "sub_82FA8898", 168),
+    ("sub_82FA9110", 0x820027DC, ".?AVCProceduralAnimatedScene@proceduralGeometry@@", 0x82989B78, 0x8240A6C8, 0x8240DF10, "sub_82FA97B8", 204),
+    ("sub_82FA8190", 0x820029EC, ".?AVCProceduralLightGlows@proceduralGeometry@@", 0x828A3500, 0x8241B2C8, 0x82F9DE68, "sub_82FA8938", 152),
+    ("sub_82FA9080", 0x8200272C, ".?AVCProceduralAnimatedObject@proceduralGeometry@@", 0x82F12860, 0x82F81868, 0x82692020, "sub_82FA9768", 196),
+    ("sub_82FA85B0", 0x8200293C, ".?AVCProceduralModels@proceduralGeometry@@", 0x82F12860, 0x824516E0, 0x824279C0, "sub_82FA89D8", 512),
+    ("sub_82FA8478", 0x8200288C, ".?AVCProceduralVegetation@proceduralGeometry@@", 0x82F12860, 0x82418798, 0x824234D0, "sub_82FA88E8", 172),
+    ("sub_82FA82D0", 0x82252B0C, ".?AVCProceduralLightMaps@proceduralGeometry@@", 0x82F12860, 0x82F867C0, 0x82692020, "sub_82FA8988", 128),
+    ("sub_82FA91B0", 0x82252C6C, ".?AVCProceduralBillboards@proceduralGeometry@@", 0x82F12860, 0x82F12860, 0x82F93968, "sub_82FA96C8", 168),
+]
+SELECTED.update({"sub_82FA5238", "sub_82C01010", "sub_82F12860", "sub_82692020"})
+for ctor, table, type_name, slot20, slot48, slot164, allocator, stride in PROCEDURAL_FAMILY:
+    SELECTED.update((ctor, allocator, f"sub_{slot164:08X}"))
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     for name in ("generated", "image", "out"):
@@ -329,6 +347,26 @@ def main():
     def table_type(table):
         return cstring(word(word(table-4)+12)+8)
 
+    # Base layout agrees with visibility masks, bytes and resolver backlink.
+    sequence("sub_82FA5238", 5, ["lis r11,-32219", "mr r31,r3", "li r30,0", "addi r10,r11,10844"])
+    sequence("sub_82FA5238", 12, ["addi r3,r3,76", "stw r30,8(r31)", "li r5,32", "stw r30,12(r31)", "li r4,0"])
+    sequence("sub_82FA5238", 24, ["stw r30,48(r31)", "stb r30,52(r31)", "stb r30,53(r31)", "stb r30,54(r31)", "stb r30,55(r31)", "stb r30,56(r31)", "stw r30,60(r31)", "stb r11,64(r31)", "stw r30,72(r31)"])
+    sequence("sub_82FA5238", 35, ["stw r30,116(r31)", "stw r30,120(r31)", "bl 0x82c023a0", "li r11,512", "stw r30,108(r31)", "mr r3,r31", "stw r11,68(r31)"])
+    expect(table_type(0x82252A5C) == ".?AVCProceduralGeometry@proceduralGeometry@@" and word(0x82252A5C+164) == 0x82C01010, "Procedural base RTTI/pure-call slot changed")
+    expect(word(0x82252A5C+168) == 0, "Procedural base table boundary changed")
+    sequence("sub_82F12860", 0, ["li r3,1", "blr "])
+    sequence("sub_82692020", 0, ["blr "])
+    for ctor, table, type_name, slot20, slot48, slot164, allocator, stride in PROCEDURAL_FAMILY:
+        expect(table_type(table) == type_name, ctor + " RTTI changed")
+        expect(tuple(word(table+slot) for slot in (20,48,164)) == (slot20,slot48,slot164), ctor + " dispatch table changed")
+        expect("bl 0x82fa5238" in selected[ctor][1], ctor + " base construction changed")
+        comments = selected[allocator][1]
+        scale = {512:"rlwinm r3,r3,9,0,22",128:"rlwinm r3,r3,7,0,24"}.get(stride,f"mulli r3,r3,{stride}")
+        expect(scale in comments and f"addi r31,r31,{stride}" in comments, allocator + " allocation stride changed")
+        expect("bl 0x82f83990" in comments and f"bl 0x{ctor[4:].lower()}" in comments, allocator + " allocation/construction changed")
+    for index, target in ((579,"82445bf0"),(811,"8245fae8"),(921,"82426e60"),(1216,"82445bf0"),(1218,"82426e60")):
+        sequence("sub_824279C0", index, ["bl 0x"+target])
+
     expect(table_type(0x820017AC) == ".?AVCTrackRenderModelInstance_Unified@Presentation_Unified@@", "Excluded short-table RTTI changed")
     expect(word(0x820017AC+60) == 0x822DF28C and word(0x822DF28C) == 0 and word(0x822DF28C+12) == 0x8335D15C, "Short-table boundary/COL changed")
     expect(table_type(0x82086724) == ".?AVCAnimatedScrollingListCtrl@ForzaUI@@", "List owner RTTI changed")
@@ -456,7 +494,17 @@ def main():
                                        "resourceBodyPointerOffset":128,"instanceBacklinkOffset":120,
                                        "admission":"8244EBD8: instance48==1 and byte64 nonzero",
                                        "excludedShortTable":"820017AC CTrackRenderModelInstance_Unified; next COL at+60, not a byte-offset164 candidate",
-                                       "virtual164ConcreteReceiverEstablished":False,"resolverExecuted":False},
+                                       "proceduralBase":{"constructor":"82FA5238","table":"82252A5C",
+                                                         "initialReadyWord48":0,"initialEnabledByte64":1,
+                                                         "initialMask68":512,"visibilityByteStart":76,"visibilityByteLength":32,"initialVisibilityCount108":0,
+                                                         "backlink120":0,"virtual164":"82C01010 pure-call"},
+                                       "proceduralFamily":[{"constructor":ctor[4:],"table":f"{table:08X}","type":type_name,
+                                                            "slot20":f"{slot20:08X}","slot48":f"{slot48:08X}",
+                                                            "slot164":f"{slot164:08X}","allocator":allocator[4:],"stride":stride}
+                                                           for ctor,table,type_name,slot20,slot48,slot164,allocator,stride in PROCEDURAL_FAMILY],
+                                       "modelMethod":"824279C0 ->82445BF0,8245FAE8,82426E60",
+                                       "virtual164ConcreteReceiverEstablished":False,"resourcePopulationEstablished":False,
+                                       "constructorsExecuted":False,"resolverExecuted":False},
               "kind1ExtentProducerEstablished":False, "cullingAdmitted":False,
               "sourceBackedControl":{"producer":"82F50780", "kind":2,
                                      "storedExtents":[-4,4,4,-4], "near":values[0x8224FA5C],"far":7.5},
