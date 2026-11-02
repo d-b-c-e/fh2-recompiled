@@ -101,6 +101,10 @@ foreach ($line in $envLines) {
     if ($i -gt 0) { [Environment]::SetEnvironmentVariable($line.Substring(0, $i), $line.Substring($i + 1), 'Process') }
 }
 if (-not $seen) { throw "VsDevCmd failed: $devCmd" }
+# CMake reads the process architecture on Windows; isolated runners may omit it.
+if (-not $env:PROCESSOR_ARCHITECTURE) {
+    $env:PROCESSOR_ARCHITECTURE = [Environment]::GetEnvironmentVariable('PROCESSOR_ARCHITECTURE', 'Machine')
+}
 $env:PATH = (@(
     (Join-Path $toolDirs['llvm-20.1.8'] 'bin'),
     (Join-Path $toolDirs['cmake-3.31.10-windows-x86_64'] 'bin'),
