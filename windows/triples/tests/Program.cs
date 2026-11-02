@@ -186,4 +186,76 @@ Refuses(() => Plan(Rig(), gameFov: double.NaN), "NaN FOV");
 Refuses(() => ProjectionPlan.Build(Rig(), state, CameraKind.Cockpit, 60, 50, 10), "clip range");
 state.SetOffset(CameraKind.Cockpit, FramingSet.Realistic, 300);
 Refuses(() => Plan(Rig(), state), "impossible offset without clamping");
+
+// Guest camera convention adapter: actual physical off-axis corners, not a second copied frustum formula.
+void GuestNear(double actual, double expected, string reason) =>
+    Check(Math.Abs(actual - expected) <= 3e-6 * Math.Max(1, Math.Abs(expected)), reason);
+double[] GuestClip(float[] matrix, double x, double y, double z)
+{
+    double[] point = { x, y, z, 1 }, clip = new double[4];
+    for (int c = 0; c < 4; c++)
+        for (int r = 0; r < 4; r++) clip[c] += point[r] * matrix[r * 4 + c];
+    return clip;
+}
+foreach (var config in new[] { Rig(), Rig(1500), Rig(left: 40, right: 75) })
+foreach (var view in Plan(config).Views)
+foreach (GuestForwardAxis axis in Enum.GetValues<GuestForwardAxis>())
+foreach (bool negate in new[] { false, true })
+{
+    var p = view.Projection;
+    var matrix = GuestProjection.EncodeForMetres(p, axis, negate);
+    double forward = axis == GuestForwardAxis.PositiveZ ? 1 : -1, xy = negate ? -1 : 1;
+    foreach (var (corner, ex, ey) in new[] { (p.Surface.LowerLeft, -1d, -1d),
+                 (p.Surface.LowerRight, 1d, -1d), (p.Surface.UpperLeft, -1d, 1d) })
+    {
+        var d = corner - p.CameraPosition;
+        var clip = GuestClip(matrix, Vector3d.Dot(d, p.CameraRight) / 1000,
+            Vector3d.Dot(d, p.CameraUp) / 1000, forward * Vector3d.Dot(d, p.CameraForward) / 1000);
+        GuestNear(clip[0] / clip[3], xy * ex, "guest row-vector off-axis corner X");
+        GuestNear(clip[1] / clip[3], xy * ey, "guest row-vector off-axis corner Y");
+    }
+    var near = GuestClip(matrix, 0, 0, forward * p.Near / 1000);
+    var far = GuestClip(matrix, 0, 0, forward * p.Far / 1000);
+    GuestNear(near[2] / near[3], 1, "guest near depth1");
+    GuestNear(far[2] / far[3], 0, "guest far depth0");
+}
+var flatProjection = Plan(Rig()).Views[1].Projection;
+Refuses(() => GuestProjection.EncodeForMetres(flatProjection, (GuestForwardAxis)99, false), "guest forward axis");
+Refuses(() => GuestProjection.EncodeForMetres(null!, GuestForwardAxis.NegativeZ, false), "null projection");
+var enormousClips = ProjectionCalculator.Calculate(flatProjection.Surface, new Vector3d(0, 0, 0), 1e45, 2e45);
+Refuses(() => GuestProjection.EncodeForMetres(enormousClips, GuestForwardAxis.NegativeZ, false), "guest float overflow");
+var controlMatrix = GuestProjection.EncodeForMetres(flatProjection, GuestForwardAxis.NegativeZ, false);
+var wrongUnits = (float[])controlMatrix.Clone(); wrongUnits[14] *= 1000;
+var wrongTranspose = new float[16];
+for (int r = 0; r < 4; r++) for (int c = 0; c < 4; c++) wrongTranspose[r * 4 + c] = controlMatrix[c * 4 + r];
+foreach (var wrong in new[] { wrongUnits, wrongTranspose,
+             GuestProjection.EncodeForMetres(flatProjection, GuestForwardAxis.PositiveZ, false) })
+{
+    var clip = GuestClip(wrong, 0, 0, -flatProjection.Near / 1000);
+    Check(Math.Abs(clip[2] / clip[3] - 1) > .1, "negative control catches wrong units/transpose/forward axis");
+}
+
+if (args.Length == 2 && args[0] == "--guest-oracle")
+{
+    using var oracle = JsonDocument.Parse(File.ReadAllBytes(args[1]));
+    Check(oracle.RootElement.GetProperty("imageSha256").GetString() ==
+        "3708A857A4EEC4BC673DF3CD0F00D304702E67B7A5570B9D34C1803CA2102244", "oracle title image identity");
+    var cases = oracle.RootElement.GetProperty("cases");
+    Check(cases.GetArrayLength() == 288, "all actual generated matrix cases present");
+    foreach (var sample in cases.EnumerateArray())
+    {
+        double fov = sample.GetProperty("fovDegrees").GetDouble(), aspect = sample.GetProperty("aspect").GetDouble();
+        double height = 2000 * Math.Tan(fov * Math.PI / 360), width = height * aspect;
+        var screen = new DisplaySurface("stock-oracle", new Vector3d(-width / 2, -height / 2, -1000),
+            new Vector3d(width / 2, -height / 2, -1000), new Vector3d(-width / 2, height / 2, -1000));
+        var projection = ProjectionCalculator.Calculate(screen, new Vector3d(0, 0, 0),
+            sample.GetProperty("nearMetres").GetDouble() * 1000, sample.GetProperty("farMetres").GetDouble() * 1000);
+        var axis = sample.GetProperty("mode").GetInt32() == 0 ? GuestForwardAxis.PositiveZ : GuestForwardAxis.NegativeZ;
+        var matrix = GuestProjection.EncodeForMetres(projection, axis, sample.GetProperty("negateClipXY").GetBoolean());
+        var stock = sample.GetProperty("matrix");
+        Check(stock.GetArrayLength() == 16, "actual stock matrix length");
+        for (int i = 0; i < 16; i++) GuestNear(matrix[i], stock[i].GetDouble(), "adapter vs actual generated projection");
+    }
+}
+else if (args.Length != 0) throw new ArgumentException("Use --guest-oracle <private oracle.json> or no arguments.");
 Console.WriteLine($"PASS: {checks} checks; canonical RigDefinition/RigPlanner consumer; no game/device/window/file writes");

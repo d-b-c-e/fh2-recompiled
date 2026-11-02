@@ -20,7 +20,9 @@ or new NuGet test dependency is required. Toolkit worktree was not modified.
 Physical coordinates are right-handed (+X right, +Y up, panels toward -Z), in
 millimeters. Eye distance is to the center panel's edge plane, without sagitta
 subtraction. Matrix rows apply as M*v with clip depth[-1,1]; near/far are mm here.
-Native guest/GPU conversion is explicitly not yet admitted. Game vertical FOV
+An explicit offline guest-camera matrix adapter is now checked against the pure
+stock builder; see [projection oracle](../../docs/PROJECTION-ORACLE-20261102.md).
+Runtime unit/mode selection, culling and GPU integration are not admitted. Game vertical FOV
 must eventually be supplied by the resolved native camera path, not inferred
 from a prior-frame WVP heuristic.
 
@@ -58,10 +60,12 @@ not an extra player setup surface. The existing wheel TOML helper is unchanged.
 With installed .NET8 SDK/runtime or later, from the source root:
 
 ```powershell
-dotnet run --project windows/triples/tests/Fh2.Triples.Tests.csproj -c Release -p:UseSharedCompilation=false -m:1
+dotnet run --project windows/triples/tests/Fh2.Triples.Tests.csproj -c Release -p:UseSharedCompilation=false -p:BuildInParallel=false
 ```
 
-The console fixture passes **534 checks** against the production consumer and pinned toolkit. It checks
+The default console fixture passes **828 checks** against the production consumer and pinned toolkit
+(retaining the original534). The optional stock-oracle route passes5,726.
+It checks
 actual projected corners/depth, seam rays, asymmetric folds, flat/curved source
 warps with a wrong-eye negative control, slice coverage, unequal pixel widths,
 five displays, edge-plane distance, per-camera starts/toggles/offsets, reset,
