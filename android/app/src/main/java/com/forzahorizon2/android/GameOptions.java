@@ -11,8 +11,8 @@ import java.util.List;
  * GameActivity passes on the command line, which wins over fh2.toml; the display ones are applied by GameActivity
  * itself. Some are only stored for now: their option row says so (see MainActivity.notYet).
  *
- * Forza Horizon 2 runs on the emulated Xenos GPU by default, so the fixed arguments are the ones nfsmw-android found
- * the emulation needs on Android drivers. The native renderer (RENDERER) replaces it; it needs the translated shader
+ * Forza Horizon 2 runs on the native renderer by default (RENDERER); the emulated Xenos GPU's fixed arguments are the
+ * ones nfsmw-android found the emulation needs on Android drivers. The native renderer needs the translated shader
  * library, fh2_shaders.nfsp, next to the game files. For now it is built on the PC (tools/xenos/biblioteca.sh) and copied
  * with tools/enviar_biblioteca_android.sh; the plan is to build it on the phone from the player's own game files (see
  * docs/renderizador_nativo.md, "A biblioteca no celular").
@@ -32,25 +32,54 @@ final class GameOptions {
     static final String ANTI_ALIASING = "anti_aliasing";      // "off", "msaa", "fxaa"
     static final String MSAA_SAMPLES = "msaa_samples";        // "2", "4"
     static final String FXAA_QUALITY = "fxaa_quality";        // "normal", "high"
-    static final String SCALING = "scaling";  // present_effect: bilinear, cas or fsr 1.0
+    static final String SCALING = "scaling";  // off (the typed scale, nearest: no filter) or present_effect: bilinear, cas or fsr 1.0
     static final String SHARPNESS = "sharpness";  // present_cas_additional_sharpness * 100, 0 to 100
-    static final String FSR_MODE = "fsr_mode";  // off or an FSR 1.0 preset: render scale + fsr effect
+    static final String FSR_MODE = "fsr_mode";  // an FSR 1.0 preset: render scale + fsr effect
     static final String ANISOTROPIC = "anisotropic";          // anisotropic_override: 0, 2 (2x), 3 (4x), 5 (16x)
     static final String SHADOWS = "shadows";                  // not applied yet (needs game hooks)
     static final String SHADOW_DISTANCE = "shadow_distance";  // not applied yet
     static final String CAR_REFLECTIONS = "car_reflections";  // not applied yet
     static final String SHADOW_MAP_SCALE = "shadow_map_scale";  // nfsmw_nativo_sombras_escala: 0 (off) to 100 %
+    // World detail (app/src/fh2_mundo.cpp): factors of the Xbox 360's, WORLD_FACTORS, "1" = as it. Both renderers but
+    // grass, which the native renderer draws (0 = none).
+    static final String WORLD_GRASS = "world_grass";              // fh2_mundo_grama
+    static final String WORLD_OBJECTS = "world_objects";          // fh2_mundo_objetos
+    static final String WORLD_REFLECTIONS = "world_reflections";  // fh2_mundo_reflexos
+    static final String WORLD_SHADOWS = "world_shadows";          // fh2_mundo_sombras
+    static final String WORLD_CROWD = "world_crowd";              // fh2_mundo_multidao
+    // fh2_nativo_msaa_a2c (native, with MSAA): foliage with real alpha to coverage, soft but grainy ("flour") on
+    // phones; off by default (the alpha test)
+    static final String FOLIAGE_COVERAGE = "foliage_coverage";
+    static final float[] WORLD_FACTORS = {0.25f, 0.5f, 0.75f, 1f, 1.5f, 2f, 3f, 4f};
+    // All but objects also go down to off (0): grass and crowd skip their draws and shadows have no shadow map in the
+    // native renderer, reflections lose the live cubemap in both. Objects off would take the world away.
+    static final float[] WORLD_FACTORS_OFF = {0f, 0.25f, 0.5f, 0.75f, 1f, 1.5f, 2f, 3f, 4f};
+
+    /** The positions of a world detail slider: WORLD_FACTORS for objects, WORLD_FACTORS_OFF for the others. */
+    static float[] worldFactors(String key) {
+        return WORLD_OBJECTS.equals(key) ? WORLD_FACTORS : WORLD_FACTORS_OFF;
+    }
     // Performance
     static final String PIN_THREADS = "pin_threads";
     static final String JOGO_RAPIDO = "jogo_rapido";  // fh2_android_afinidade=jogo-rapido (off = auto)
-    static final String PERFORMANCE_HINTS = "performance_hints";  // fh2_android_adpf (Android's ADPF)
-    // The ADPF toggle is out of the menu: the hints are always on (the 2026-10-14 A/B on the S23 Ultra showed no
-    // loss). Set to true to bring the row back (MainActivity.performancePage) and honor the saved choice again.
-    static final boolean PERFORMANCE_HINTS_IN_MENU = false;
+    // fh2_android_adpf (Android's ADPF). Not "performance_hints": the 2026-10-14 A/B builds saved that key off on some
+    // phones, and the toggle starts on for everyone.
+    static final String PERFORMANCE_HINTS = "adpf_hints";
+    // The ADPF toggle is in Performance > Processor, on by default (the 2026-10-14 A/B on the S23 Ultra showed no
+    // loss). Set to false to hide the row again and keep the hints always on.
+    static final boolean PERFORMANCE_HINTS_IN_MENU = true;
     static final String VERTEX_CACHE = "vertex_cache";  // fh2_nativo_cache_vertices (native), on by default
-    static final String EXACT_TARGETS = "exact_targets";  // fh2_nativo_destinos_exactos (native), off by default
+    // fh2_nativo_cache_indices (native), on by default. Not "indices_cache": test builds of 2026-10-14 used that key
+    // and some phones saved it off to dodge a since-fixed bug.
+    static final String INDEX_CACHE = "index_cache";
+    static final String VERTEX_NO_WAIT = "vertex_no_wait";  // fh2_nativo_vertices_sin_espera (native), on by default
+    static final String EXACT_TARGETS = "exact_targets";  // fh2_nativo_destinos_exactos (native), on by default
+    // fh2_nativo_mips_reflejo_juntos (native), off by default until the phone A/B
+    static final String REFLECTION_MIPS = "reflection_mips";
     // Diagnostics (About page)
     static final String GPU_MEASUREMENTS = "gpu_measurements";  // fh2_nativo_medir_gpu: GPU times in the logs
+    static final String VERBOSE_LOG = "verbose_log";  // log_detalhado: every repeated message (stubs, textures)
+    static final String ROOT_PROFILE = "root_profile";  // one simpleperf profile in the next game (root)
     static final String ONE_PASS = "one_pass";                // fh2_uma_faixa: the scene in one pass, not 3 tiles
     static final String ADAPTIVE_VBLANK = "adaptive_vblank";  // vblank_adaptativo
     static final String RESOLVE_SHORTCUT = "resolve_shortcut";  // gpu_atalho_resolve
@@ -60,11 +89,19 @@ final class GameOptions {
     static final String TURBO = "turbo";                      // not applied yet
     // Sound
     static final String VOLUME = "volume";
+    // audio_xma_en_trabajador: on = 1 (the XMA Decoder thread decodes everything), off = 2 (the game's audio
+    // thread decodes, as before f47050e). Off by default: on several phones mode 1 made the sound stutter.
+    static final String AUDIO_WORKER = "audio_worker";
+    static final String VIBRATION_PHONE = "vibration_phone";
+    static final String VIBRATION_MODE = "vibration_mode";  // "phone", "gamepad", "both"
     // Language
     static final String GAME_LANGUAGE = "game_language";  // a GameLanguage code: "en-US", "pt-BR"...
-    static final String APP_LANGUAGE = "app_language";    // "pt" or "en" (AppLanguage)
+    static final String APP_LANGUAGE = "app_language";    // "" (the system's), "pt", "en" or "es" (AppLanguage)
     // Game files
     static final String GAME_ISO = "game_iso";            // path of the disc image read in place; "" = the folder
+    // Home screen
+    static final String GAMERTAG = "gamertag";  // user_gamertag: the name the game shows (cleanGamertag)
+    static final String HOME_VIDEO_SOUND = "home_video_sound";  // the home screen video with sound, off by default
 
     static final String RES_480P = "480p";
     static final String RES_720P = "720p";
@@ -80,7 +117,7 @@ final class GameOptions {
     static String defaultOf(String key) {
         switch (key) {
             case RESOLUTION: return RES_NATIVE;
-            case RENDERER: return "emulated";
+            case RENDERER: return "native";
             case PRESENT_MODE: return "fifo";
             case RENDER_SCALE: return "100";
             case FPS: return "30";  // the Xbox 360's
@@ -92,34 +129,86 @@ final class GameOptions {
             case FXAA_QUALITY: return "normal";
             case SCALING: return "bilinear";
             case SHARPNESS: return "0";
-            case FSR_MODE: return "off";
-            case ANISOTROPIC: return "3";
+            case FSR_MODE: return "mega_quality";
+            case ANISOTROPIC: return "0";
             case SHADOWS: return "1";
             case SHADOW_DISTANCE: return "far";
             case CAR_REFLECTIONS: return "high";
             case SHADOW_MAP_SCALE: return "100";  // the Xbox 360's 1600x1600
+            case WORLD_GRASS:
+            case WORLD_OBJECTS:
+            case WORLD_REFLECTIONS:
+            case WORLD_SHADOWS:
+            case WORLD_CROWD: return "1";  // the Xbox 360's
             case DRIVER: return "";
             case VOLUME: return "100";
-            // English (US), what the console settings said before this option existed.
-            case GAME_LANGUAGE: return "en-US";
+            case VIBRATION_PHONE: return "true";
+            case VIBRATION_MODE: return "both";
+            case GAME_LANGUAGE: return systemGameLanguage();
             case GAME_ISO: return "";
-            case APP_LANGUAGE: return "pt".equals(java.util.Locale.getDefault().getLanguage()) ? "pt" : "en";
+            case GAMERTAG: return "Player";
+            case APP_LANGUAGE: return "";  // the system's: Android picks from the phone's languages
             default: throw new IllegalArgumentException(key);
         }
     }
 
     static String get(Context context, String key) {
-        return prefs(context).getString(key, defaultOf(key));
+        String value = prefs(context).getString(key, defaultOf(key));
+        if (ANTI_ALIASING.equals(key) && ("msaa2".equals(value) || "msaa4".equals(value))) {
+            // Before the native renderer used the emulated one's form, it stored "msaa2"/"msaa4": both renderers
+            // now keep "msaa" here and the sample count in MSAA_SAMPLES.
+            prefs(context).edit().putString(ANTI_ALIASING, "msaa")
+                    .putString(MSAA_SAMPLES, value.substring(4)).apply();
+            value = "msaa";
+        }
+        return value;
     }
 
     static void set(Context context, String key, String value) {
         prefs(context).edit().putString(key, value).apply();
     }
 
+    static final int GAMERTAG_MAX = 15;
+
+    /**
+     * A name as an Xbox 360 gamertag: letters, digits and single spaces, at most 15, so it fits wherever the game
+     * shows one. Empty when nothing is left.
+     */
+    static String cleanGamertag(String name) {
+        StringBuilder clean = new StringBuilder();
+        for (int i = 0; i < name.length() && clean.length() < GAMERTAG_MAX; i++) {
+            char c = name.charAt(i);
+            if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9')) clean.append(c);
+            else if (c == ' ' && clean.length() > 0 && clean.charAt(clean.length() - 1) != ' ') clean.append(c);
+        }
+        return clean.toString().trim();
+    }
+
+    static String gamertag(Context context) {
+        String name = cleanGamertag(get(context, GAMERTAG));
+        return name.isEmpty() ? defaultOf(GAMERTAG) : name;  // never empty: the cvar parser aborts on it
+    }
+
     static boolean flag(Context context, String key) {
         boolean byDefault = PIN_THREADS.equals(key) || PERFORMANCE_HINTS.equals(key) || ONE_PASS.equals(key) ||
-                ADAPTIVE_VBLANK.equals(key) || RESOLVE_SHORTCUT.equals(key) || VERTEX_CACHE.equals(key);
+                ADAPTIVE_VBLANK.equals(key) || RESOLVE_SHORTCUT.equals(key) || VERTEX_CACHE.equals(key) ||
+                INDEX_CACHE.equals(key) || VERTEX_NO_WAIT.equals(key) || EXACT_TARGETS.equals(key) ||
+                VIBRATION_PHONE.equals(key);
         return prefs(context).getBoolean(key, byDefault);
+    }
+
+    // What "Restore defaults" (the Graphics and Performance pages) takes back: every option of those two pages, the
+    // hidden ones too, but the imported GPU driver.
+    private static final String[] RESTORABLE = {RENDERER, RENDER_SCALE, FPS, ANTI_ALIASING, MSAA_SAMPLES, FXAA_QUALITY,
+            SCALING, SHARPNESS, FSR_MODE, ANISOTROPIC, SHADOWS, SHADOW_DISTANCE, CAR_REFLECTIONS, SHADOW_MAP_SCALE,
+            WORLD_GRASS, WORLD_OBJECTS, WORLD_REFLECTIONS, WORLD_SHADOWS, WORLD_CROWD, FOLIAGE_COVERAGE, ONE_PASS, RESOLVE_SHORTCUT, ASYNC_SHADERS, LAZY_COMPOSITE, PIN_THREADS, JOGO_RAPIDO, PERFORMANCE_HINTS,
+            VERTEX_CACHE, INDEX_CACHE, VERTEX_NO_WAIT, EXACT_TARGETS, REFLECTION_MIPS, TURBO};
+
+    /** The Graphics and Performance options back to their defaults (defaultOf, flag): the stored values go. */
+    static void restoreDefaults(Context context) {
+        SharedPreferences.Editor editor = prefs(context).edit();
+        for (String key : RESTORABLE) editor.remove(key);
+        editor.apply();
     }
 
     static void flag(Context context, String key, boolean value) {
@@ -157,18 +246,20 @@ final class GameOptions {
     }
 
     /**
-     * FSR 1.0 mode as a render-scale percent of 1280x720, or 0 when off. Only while the scaling effect
-     * itself is fsr: otherwise a stored mode must never override the typed scale (stale preset).
+     * Render-scale percent of 1280x720 forced by the scaling choice, or 0 to keep the typed scale. Only FSR 1.0
+     * forces one, its mode. Off, bilinear and CAS keep the typed scale, so a stored FSR mode never overrides it
+     * (stale preset).
      */
     static int fsrModeScalePercent(Context context) {
         if (!"fsr".equals(get(context, SCALING))) return 0;
         switch (get(context, FSR_MODE)) {
+            case "mega_quality": return 100;
             case "ultra_quality": return 77;
             case "quality": return 67;
             case "balanced": return 59;
             case "performance": return 50;
             case "ultra_performance": return 33;
-            default: return 0;
+            default: return 100;  // mega_quality, and the old "off"
         }
     }
 
@@ -182,6 +273,23 @@ final class GameOptions {
     static int effectiveNativeRenderScalePercent(Context context) {
         int preset = fsrModeScalePercent(context);
         return preset > 0 ? Math.max(12, preset) : nativeRenderScalePercent(context);
+    }
+
+    /** A world detail factor (WORLD_GRASS and the others), one of worldFactors(key); 1 when the stored one is not. */
+    static float worldFactor(Context context, String key) {
+        try {
+            float value = Float.parseFloat(get(context, key).trim());
+            for (float factor : worldFactors(key)) {
+                if (Math.abs(factor - value) < 0.001f) return factor;
+            }
+        } catch (NumberFormatException e) {
+            // the default below
+        }
+        return 1f;
+    }
+
+    static void worldFactor(Context context, String key, float value) {
+        set(context, key, String.valueOf(value));
     }
 
     /** The native renderer's shadow map size, 0 (no shadows) to 100 percent of the game's 1600x1600. */
@@ -232,18 +340,15 @@ final class GameOptions {
     static final class GameLanguage {
         final String code;
         final String name;          // in its own language, as a console lists them
-        final String portuguese;    // what it is, in the app's two languages
-        final String english;
+        final int description;      // what it is, in the app's language (R.string)
         final int language;         // XLanguage (sdk/include/rex/system/xcontent.h)
         final int country;          // XOnlineCountry; xeXamGetLocaleFromCountry turns it into the locale
         final boolean voiceOver;
 
-        GameLanguage(String code, String name, String portuguese, String english, int language, int country,
-                     boolean voiceOver) {
+        GameLanguage(String code, String name, int description, int language, int country, boolean voiceOver) {
             this.code = code;
             this.name = name;
-            this.portuguese = portuguese;
-            this.english = english;
+            this.description = description;
             this.language = language;
             this.country = country;
             this.voiceOver = voiceOver;
@@ -251,18 +356,18 @@ final class GameOptions {
     }
 
     static final GameLanguage[] GAME_LANGUAGES = {
-            new GameLanguage("en-US", "English (US)", "Inglês · Estados Unidos", "English · United States", 1, 103, true),
-            new GameLanguage("en-GB", "English (UK)", "Inglês · Reino Unido", "English · United Kingdom", 1, 35, false),
-            new GameLanguage("pt-BR", "Português (Brasil)", "Português · Brasil", "Portuguese · Brazil", 9, 13, true),
-            new GameLanguage("es-ES", "Español (España)", "Espanhol · Espanha", "Spanish · Spain", 5, 31, false),
-            new GameLanguage("es-MX", "Español (México)", "Espanhol · México", "Spanish · Mexico", 5, 71, true),
-            new GameLanguage("fr-FR", "Français", "Francês", "French", 4, 34, true),
-            new GameLanguage("de-DE", "Deutsch", "Alemão", "German", 3, 24, false),
-            new GameLanguage("it-IT", "Italiano", "Italiano", "Italian", 6, 50, false),
-            new GameLanguage("pl-PL", "Polski", "Polonês", "Polish", 11, 82, false),
-            new GameLanguage("ru-RU", "Русский", "Russo", "Russian", 12, 88, false),
-            new GameLanguage("ja-JP", "日本語", "Japonês", "Japanese", 2, 53, false),
-            new GameLanguage("zh-TW", "繁體中文", "Chinês tradicional", "Traditional Chinese", 8, 101, false),
+            new GameLanguage("en-US", "English (US)", R.string.game_language_en_us, 1, 103, true),
+            new GameLanguage("en-GB", "English (UK)", R.string.game_language_en_gb, 1, 35, false),
+            new GameLanguage("pt-BR", "Português (Brasil)", R.string.game_language_pt_br, 9, 13, true),
+            new GameLanguage("es-ES", "Español (España)", R.string.game_language_es_es, 5, 31, false),
+            new GameLanguage("es-MX", "Español (México)", R.string.game_language_es_mx, 5, 71, true),
+            new GameLanguage("fr-FR", "Français", R.string.game_language_fr_fr, 4, 34, true),
+            new GameLanguage("de-DE", "Deutsch", R.string.game_language_de_de, 3, 24, false),
+            new GameLanguage("it-IT", "Italiano", R.string.game_language_it_it, 6, 50, false),
+            new GameLanguage("pl-PL", "Polski", R.string.game_language_pl_pl, 11, 82, false),
+            new GameLanguage("ru-RU", "Русский", R.string.game_language_ru_ru, 12, 88, false),
+            new GameLanguage("ja-JP", "日本語", R.string.game_language_ja_jp, 2, 53, false),
+            new GameLanguage("zh-TW", "繁體中文", R.string.game_language_zh_tw, 8, 101, false),
     };
 
     /**
@@ -271,8 +376,9 @@ final class GameOptions {
      * the vblank rate, twice the chosen FPS: on the PC, 120 Hz took the loading screens from 55 to 104 fps and let
      * game frames under 30 ms through, and the game's clock is the real one (KeQueryPerformanceFrequency), so after
      * the same 20 s of throttle the car was at the same speed. Both renderers read the rate (VdQueryVideoMode in
-     * graphics_system.cpp and in BucleVblank). Unlimited is 480 Hz, the SDK's top: 240 fps in game. The start
-     * screens and loadings may go up to twice the limit.
+     * graphics_system.cpp and in BucleVblank). The start screens and loadings may go up to twice the limit.
+     * Unlimited is 240 Hz, the same as 120 fps: at 480 Hz the game stopped drawing its 3D world (black race on the
+     * Moto G9 Play, ~200 draws per frame against ~1,700 at 60 Hz), and no phone reaches 120 fps in a race anyway.
      */
     static int vblankRate(Context context) {
         int fps;
@@ -281,7 +387,25 @@ final class GameOptions {
         } catch (NumberFormatException e) {
             fps = 30;
         }
-        return fps <= 0 ? 480 : Math.max(30, Math.min(240, fps)) * 2;
+        return fps <= 0 ? 240 : Math.max(30, Math.min(120, fps)) * 2;
+    }
+
+    /**
+     * The game's language until the player picks one: the closest to the phone's languages (not the app's), in
+     * their order. The exact one first (en-GB, es-ES), else the first of the same language (es: Mexico's, which is
+     * voiced); English (US) when none matches.
+     */
+    static String systemGameLanguage() {
+        android.os.LocaleList locales = android.content.res.Resources.getSystem().getConfiguration().getLocales();
+        for (int i = 0; i < locales.size(); i++) {
+            java.util.Locale locale = locales.get(i);
+            String language = locale.getLanguage();
+            String tag = language + "-" + locale.getCountry();
+            for (GameLanguage game : GAME_LANGUAGES) if (game.code.equalsIgnoreCase(tag)) return game.code;
+            if ("es".equals(language)) return "es-MX";
+            for (GameLanguage game : GAME_LANGUAGES) if (game.code.startsWith(language + "-")) return game.code;
+        }
+        return "en-US";
     }
 
     static GameLanguage gameLanguage(Context context) {
@@ -293,12 +417,35 @@ final class GameOptions {
     static List<String> arguments(Context context) {
         List<String> args = new ArrayList<>();
         args.add("--audio_ganancia_pct=" + get(context, VOLUME));
+        // Repeated messages (kernel stubs, resolved textures): the first 20 of each unless the player asks for all.
+        args.add("--log_detalhado=" + flag(context, VERBOSE_LOG));
+        args.add("--audio_xma_en_trabajador=" + (flag(context, AUDIO_WORKER) ? 1 : 2));
+        // Phone vibration (android_vibration.cpp): read once at start, never through the JVM per frame.
+        args.add("--fh2_android_vibracao=" + flag(context, VIBRATION_PHONE));
+        String vibrationMode = get(context, VIBRATION_MODE);
+        if (!"phone".equals(vibrationMode) && !"gamepad".equals(vibrationMode)) vibrationMode = "both";
+        args.add("--fh2_android_vibracao_modo=" + vibrationMode);  // never empty: the cvar parser aborts on it
+        // The keyboard and the mouse as a controller (the SDK's MnK driver, sdk/src/input/mnk), always on, the way a
+        // gamepad is: the driver is one more device on player 1, at rest until a key is pressed or the mouse moves,
+        // and it takes the mouse only once a real one is used. The racing layout fills the keys the player did not
+        // change in game (F4).
+        args.add("--mnk_mode=true");
+        args.add("--mnk_preset=race");
+        args.add("--mnk_mouse=true");
         GpuDrivers.arguments(context, args);  // the chosen Vulkan driver, or the system's
         // The FPS limit is the guest vblank rate (fpsLimit).
         args.add("--video_mode_refresh_rate=" + vblankRate(context));
+        // World detail: the game's TrackSettings.xml rewritten at start (fh2_mundo.cpp), both renderers; grass is the
+        // native renderer's (the vegetation's fade distances in its draws).
+        args.add("--fh2_mundo_grama=" + worldFactor(context, WORLD_GRASS));
+        args.add("--fh2_mundo_objetos=" + worldFactor(context, WORLD_OBJECTS));
+        args.add("--fh2_mundo_reflexos=" + worldFactor(context, WORLD_REFLECTIONS));
+        args.add("--fh2_mundo_sombras=" + worldFactor(context, WORLD_SHADOWS));
+        args.add("--fh2_mundo_multidao=" + worldFactor(context, WORLD_CROWD));
         GameLanguage language = gameLanguage(context);
         args.add("--user_language=" + language.language);
         args.add("--user_country=" + language.country);
+        args.add("--user_gamertag=" + gamertag(context));
         if ("native".equals(get(context, RENDERER))) {
             // NFSMW Android Evolved's renderer built for FH2 (app/src/nativo): the ring is drawn with translated
             // shaders, no EDRAM emulation. The emulated GPU's arguments below are then ignored; these are its own.
@@ -307,15 +454,29 @@ final class GameOptions {
             args.add("--fh2_nativo_escala=" + effectiveNativeRenderScalePercent(context));
             // Its own FXAA on the output; MSAA 2x/4x on the 3D scene (fh2_nativo_msaa, off by default).
             args.add("--nfsmw_antialiasing=" + ("fxaa".equals(get(context, ANTI_ALIASING)) ? "fxaa" : "apagado"));
-            String aa = get(context, ANTI_ALIASING);
-            args.add("--fh2_nativo_msaa=" + ("msaa4".equals(aa) ? 4 : "msaa2".equals(aa) ? 2 : 0));
+            // The same choice as the emulated renderer's: "msaa" and the sample count (2 or 4).
+            args.add("--fh2_nativo_msaa=" + (!"msaa".equals(get(context, ANTI_ALIASING)) ? 0
+                    : "2".equals(get(context, MSAA_SAMPLES)) ? 2 : 4));
             args.add("--nfsmw_nativo_anisotropico=" + nativeAnisotropic(get(context, ANISOTROPIC)));
-            args.add("--nfsmw_nativo_sombras_escala=" + shadowMapScalePercent(context));
+            // World detail shadows off: no shadow map at all, whatever the shadow quality.
+            args.add("--nfsmw_nativo_sombras_escala="
+                    + (worldFactor(context, WORLD_SHADOWS) == 0f ? 0 : shadowMapScalePercent(context)));
+            // Trees, bushes and fences (the alpha-tested draws) cast shadows from 1x up, as on the Xbox 360; below 1x
+            // they are left out of the shadow map, as NFSMW does for speed (scene pass ~3.9 to ~2 ms of GPU on the PC).
+            args.add("--nfsmw_sombras_sin_vegetacion=" + (worldFactor(context, WORLD_SHADOWS) < 1f));
             args.add("--nfsmw_nativo_compuesta_perezosa=" + flag(context, LAZY_COMPOSITE));
             // Off by default: each GPU timestamp makes a phone's GPU wait for the work in flight.
             args.add("--fh2_nativo_medir_gpu=" + flag(context, GPU_MEASUREMENTS));
+            // The overlay's GPU % from two timestamps per submission, only where no kernel file has it (Mali on
+            // MediaTek with Android 16): the timestamps cost a little GPU time.
+            args.add("--fh2_nativo_medir_gpu_uso=" + (flag(context, SHOW_USAGE) && !UsageMonitor.kernelGpuReadable()));
             args.add("--fh2_nativo_cache_vertices=" + flag(context, VERTEX_CACHE));
+            args.add("--fh2_nativo_cache_indices=" + flag(context, INDEX_CACHE));
+            args.add("--fh2_nativo_vertices_sin_espera=" + flag(context, VERTEX_NO_WAIT));
             args.add("--fh2_nativo_destinos_exactos=" + flag(context, EXACT_TARGETS));
+            args.add("--fh2_nativo_mips_reflejo_juntos=" + flag(context, REFLECTION_MIPS));
+            // Only does something with MSAA: soft but grainy foliage edges instead of the alpha test's hard cut.
+            args.add("--fh2_nativo_msaa_a2c=" + flag(context, FOLIAGE_COVERAGE));
         }
         switch (get(context, ANTI_ALIASING)) {
             case "off":
@@ -361,8 +522,8 @@ final class GameOptions {
         // fills the whole buffer. The scaling effect (bilinear, CAS sharpening or FSR 1.0) needs
         // REX_HAS_FIDELITYFX_SDK on Android (sdk/src/ui/CMakeLists.txt).
         String scaling = get(context, SCALING);
-        // An FSR mode on wins over the scaling choice: it is a scale preset with the fsr effect.
-        if (fsrModeScalePercent(context) > 0) scaling = "fsr";
+        // Off: the typed render scale shown as it is, no upscaling filter (nearest sampling: 160x90 is blocky).
+        args.add("--present_nearest=" + "off".equals(scaling));
         if (!"cas".equals(scaling) && !"fsr".equals(scaling)) scaling = "bilinear";
         args.add("--present_effect=" + scaling);
         // Extra CAS/RCAS sharpness on top of the effect's own (0 keeps the SDK default).

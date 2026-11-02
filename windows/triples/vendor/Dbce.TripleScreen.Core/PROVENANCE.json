@@ -1,0 +1,63 @@
+{
+  "repository": "dbce-triple-screen-toolkit",
+  "commit": "149cc66ff34feb773afc66c615f3bcddb2dac406",
+  "modifications": "none; canonical LF source",
+  "files": [
+    {
+      "path": "CurvedPanelWarp.cs",
+      "sha256": "55097193905E2C907798A03149AF19522EE46C5BC0BF290838AB68AE171075AF"
+    },
+    {
+      "path": "Dbce.TripleScreen.Core.csproj",
+      "sha256": "F1BA376B1750E6279B47FB9E6796CE0C0F45F54CC6B0474DA51FCAD9FE49570A"
+    },
+    {
+      "path": "DisplaySurface.cs",
+      "sha256": "60EB216268C8245C20B0B7BB05CA9871610E8389406D3ED892FA50CE77A9461D"
+    },
+    {
+      "path": "EyeRay.cs",
+      "sha256": "6D245EC116F215A105952A6F8BC1E2DB2B6675CEB684E34078D229FDE5B5D508"
+    },
+    {
+      "path": "EyeRayCalculator.cs",
+      "sha256": "B90B5D3CBAD4270AE9BB390B9F4F13E2958DD0BF16475DF7421635BB8DEEE189"
+    },
+    {
+      "path": "Matrix4x4d.cs",
+      "sha256": "DA78DA311B3BA8F88DC4CB8D629ED1E400A505F25A6443E08E401A2BF69CFDAC"
+    },
+    {
+      "path": "OffAxisProjection.cs",
+      "sha256": "BAF97993E4967981531068B87F953788F7A5F0CDA7F1356D964668465491F448"
+    },
+    {
+      "path": "PanelDimensions.cs",
+      "sha256": "C60046D3C9DFA37E10E038FD3A963D4F65B07B59CDB650DDD684A9A6A1C4656A"
+    },
+    {
+      "path": "ProjectionCalculator.cs",
+      "sha256": "5AEF8745200CEB6060FEA7267D65E95E97C7413BEB0AAE7BDC8FD713EC50BEBD"
+    },
+    {
+      "path": "RigDefinition.cs",
+      "sha256": "9E602CE5113C15446914F63BBEFC9DCE6CE2238A5ED8CF53EC7AF2E3483F2FC8"
+    },
+    {
+      "path": "RigPlanner.cs",
+      "sha256": "05FCFF4441638F539D84E64E425D103E90DA8A9E28E75CDEDD59C84C980C857D"
+    },
+    {
+      "path": "TripleRigBuilder.cs",
+      "sha256": "F586F3D6B4C0B4ED3E187181DEE418E777EB3B4F57A8FEA45A3868EACC9DEE10"
+    },
+    {
+      "path": "TripleRigDefinition.cs",
+      "sha256": "22F25601D97C7A12F8EE6C480658A9B86D9BA55B91461D05A05E7A6AD67E7F4A"
+    },
+    {
+      "path": "Vector3d.cs",
+      "sha256": "4A3EDB76526208ADFD7CE72EB70783684C7FA92D78F7BE7A3B66947F7B9FA87E"
+    }
+  ]
+}

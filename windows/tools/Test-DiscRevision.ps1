@@ -50,7 +50,9 @@ $checks = @(
     # Leaves without a prologue right after the previous function's backward b.
     @{ a = 0x8305E794L; w = @('4BFFFFF0'); what = 'b back (tail of the function before 0x8305E798)' },
     @{ a = 0x8305E8ACL; w = @('4BFFFFF0'); what = 'b back (tail of the function before 0x8305E8B0)' },
-    @{ a = 0x83045374L; w = @('4BFFFFF0'); what = 'b back (tail of the function before 0x83045378)' }
+    @{ a = 0x83045374L; w = @('4BFFFFF0'); what = 'b back (tail of the function before 0x83045378)' },
+    # The gate read's accepted and refused exits (windows/fh2_dbce_overrides.toml).
+    @{ a = 0x82D84258L; w = @('A861005C','48000008','3860FFFF','38210070'); what = 'lha r3,92(r1); b +8; li r3,-1; addi r1,r1,112' }
 )
 $fail = 0
 foreach ($c in $checks) {

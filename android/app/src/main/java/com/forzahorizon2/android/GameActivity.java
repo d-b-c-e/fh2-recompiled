@@ -72,6 +72,17 @@ public final class GameActivity extends SDLActivity
     private final Handler clock = new Handler(Looper.getMainLooper());
     private boolean stretched = true;
     private TextView fpsLabel;
+    // When the mouse's pointer capture was last asked for.
+    private long lastMouseCapture;
+    // A mouse was used since the last one was unplugged.
+    private boolean mouseSeen;
+    // How often the pointer capture is asked for again, so that it stays on the game's surface.
+    private static final long MOUSE_CAPTURE_INTERVAL = 250;
+
+    @Override
+    protected void attachBaseContext(Context base) {
+        super.attachBaseContext(AppLanguage.wrap(base));
+    }
 
     @Override
     protected void onCreate(Bundle state) {
@@ -85,7 +96,6 @@ public final class GameActivity extends SDLActivity
             finish();
             return;
         }
-        AppLanguage.load(this);
         File appRoot = new File(getFilesDir(), "fh2");
         // The extracted folder or the disc image itself (GameIso): the SDK mounts either.
         gameRoot = GameIso.gameDataRoot(this).getAbsolutePath();
@@ -105,6 +115,7 @@ public final class GameActivity extends SDLActivity
         setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE);
         super.onCreate(state);
         useWholeScreen();
+        hideSystemBars();
 
         ViewGroup root = findViewById(android.R.id.content);
         controls = new TouchControlsView(this);
@@ -136,6 +147,11 @@ public final class GameActivity extends SDLActivity
         if (!showUsage) {
             startUsageMonitor(null);
         }
+        // "Gravar perfil de desempenho (root)": once, in this game, then the option turns itself off.
+        if (GameOptions.flag(this, GameOptions.ROOT_PROFILE)) {
+            GameOptions.flag(this, GameOptions.ROOT_PROFILE, false);
+            RootDiagnostics.profileLater(android.os.Process.myPid(), sessionLogBase(), 60);
+        }
 
         inputManager = (InputManager) getSystemService(Context.INPUT_SERVICE);
         sensorManager = (SensorManager) getSystemService(Context.SENSOR_SERVICE);
@@ -165,8 +181,9 @@ public final class GameActivity extends SDLActivity
                 .format(new java.util.Date());
         File target = new File(backups, stamp);
         try {
+            SaveTransfer.hideFromGallery(backups);
             for (File entry : entries) {
-                copyTree(entry, new File(target, entry.getName()));
+                SaveTransfer.copyEntry(entry, new File(target, entry.getName()));
             }
             File[] old = backups.listFiles(File::isDirectory);
             if (old != null && old.length > SAVE_BACKUPS + 1) {
@@ -183,6 +200,12 @@ public final class GameActivity extends SDLActivity
     }
 
     static void copyTree(File source, File target) throws IOException {
+        copyTree(source, target, f -> true);
+    }
+
+    /** Like copyTree, but skips the files and folders `keep` rejects. */
+    static void copyTree(File source, File target, java.io.FileFilter keep) throws IOException {
+        if (!keep.accept(source)) return;
         if (source.isDirectory()) {
             if (!target.mkdirs() && !target.isDirectory()) {
                 throw new IOException("mkdir " + target);
@@ -190,7 +213,7 @@ public final class GameActivity extends SDLActivity
             File[] children = source.listFiles();
             if (children != null) {
                 for (File child : children) {
-                    copyTree(child, new File(target, child.getName()));
+                    copyTree(child, new File(target, child.getName()), keep);
                 }
             }
         } else {
@@ -227,11 +250,17 @@ public final class GameActivity extends SDLActivity
         if (fps <= 0) {
             fps = 240;  // "Unlimited": the fastest mode the panel has.
         }
+        Log.i(TAG, "useWholeScreen: fpsLimit=" + fps);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             Display display = getWindowManager().getDefaultDisplay();
+            Display.Mode current = display.getMode();
+            Log.i(TAG, "useWholeScreen: current display mode=" + current.getPhysicalWidth() + "x" +
+                    current.getPhysicalHeight() + " @" + current.getRefreshRate() + " Hz");
             Display.Mode best = null;
             for (Display.Mode mode : display.getSupportedModes()) {
-                if (mode.getPhysicalWidth() != display.getMode().getPhysicalWidth()) {
+                Log.i(TAG, "useWholeScreen: available mode=" + mode.getPhysicalWidth() + "x" +
+                        mode.getPhysicalHeight() + " @" + mode.getRefreshRate() + " Hz id=" + mode.getModeId());
+                if (mode.getPhysicalWidth() != current.getPhysicalWidth()) {
                     continue;
                 }
                 // The lowest mode that still shows every frame the game makes.
@@ -241,16 +270,106 @@ public final class GameActivity extends SDLActivity
                 }
             }
             if (best != null) {
+                Log.i(TAG, "useWholeScreen: selected mode=" + best.getPhysicalWidth() + "x" +
+                        best.getPhysicalHeight() + " @" + best.getRefreshRate() + " Hz id=" + best.getModeId());
                 attrs.preferredDisplayModeId = best.getModeId();
+            } else {
+                // Fallback: Free (ou um alvo acima do que o painel suporta) - escolhe o modo de refresh mais
+                // alto da mesma largura física, para não deixar a tela presa em 60 Hz.
+                Display.Mode fastest = null;
+                for (Display.Mode mode : display.getSupportedModes()) {
+                    if (mode.getPhysicalWidth() != current.getPhysicalWidth()) {
+                        continue;
+                    }
+                    if (fastest == null || mode.getRefreshRate() > fastest.getRefreshRate()) {
+                        fastest = mode;
+                    }
+                }
+                if (fastest != null) {
+                    Log.w(TAG, "useWholeScreen: NO mode >=" + fps + " Hz at " +
+                            current.getPhysicalWidth() + "px width; falling back to fastest mode " +
+                            fastest.getPhysicalWidth() + "x" + fastest.getPhysicalHeight() +
+                            " @" + fastest.getRefreshRate() + " Hz id=" + fastest.getModeId());
+                    attrs.preferredDisplayModeId = fastest.getModeId();
+                } else {
+                    Log.w(TAG, "useWholeScreen: NO display mode found >=" + fps + " Hz at " +
+                            current.getPhysicalWidth() + "px width; display stays at " +
+                            current.getRefreshRate() + " Hz");
+                }
             }
         }
         getWindow().setAttributes(attrs);
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
     }
 
+    /*
+     * The status and navigation bars hidden, the image and the controls under where they were. SDL hides them with
+     * the deprecated setSystemUiVisibility flags, which some phones ignore or undo (POCO F6 with HyperOS: a black
+     * status-bar-high band over the top of the game, controls and FPS included, and the gesture pill shown). Android
+     * 11+ gets the current API; earlier versions keep SDL's flags. Applied again on every return to focus, after SDL.
+     */
+    private void hideSystemBars() {
+        android.view.Window window = getWindow();
+        window.setStatusBarColor(Color.TRANSPARENT);
+        window.setNavigationBarColor(Color.TRANSPARENT);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            window.setDecorFitsSystemWindows(false);
+            android.view.WindowInsetsController bars = window.getInsetsController();
+            if (bars != null) {
+                bars.setSystemBarsBehavior(android.view.WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
+                bars.hide(android.view.WindowInsets.Type.statusBars() | android.view.WindowInsets.Type.navigationBars());
+            }
+            WindowManager.LayoutParams attrs = window.getAttributes();
+            if (attrs.layoutInDisplayCutoutMode != WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS) {
+                attrs.layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS;
+                window.setAttributes(attrs);
+            }
+        }
+        // What the system really did, once it has settled, in the session's usage log.
+        window.getDecorView().postDelayed(this::logScreenInsets, 500);
+    }
+
+    private String lastScreenInsets;
+
+    // "[tela]" line in <session>_uso.log when it changes: whether the bars are visible, the room they take, the
+    // cutout. A report from a phone where the band is still there then says why.
+    private void logScreenInsets() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return;
+        android.view.WindowInsets insets = getWindow().getDecorView().getRootWindowInsets();
+        if (insets == null) return;
+        android.graphics.Insets bars = insets.getInsets(android.view.WindowInsets.Type.systemBars());
+        android.view.DisplayCutout cutout = insets.getDisplayCutout();
+        View decor = getWindow().getDecorView();
+        String line = "[tela] janela " + decor.getWidth() + "x" + decor.getHeight()
+                + ", barra de status " + (insets.isVisible(android.view.WindowInsets.Type.statusBars()) ? "VISÍVEL" : "escondida")
+                + ", navegação " + (insets.isVisible(android.view.WindowInsets.Type.navigationBars()) ? "VISÍVEL" : "escondida")
+                + ", espaço das barras topo " + bars.top + " baixo " + bars.bottom + " esq " + bars.left + " dir " + bars.right
+                + ", recorte " + (cutout == null ? "nenhum" : "topo " + cutout.getSafeInsetTop() + " baixo "
+                + cutout.getSafeInsetBottom() + " esq " + cutout.getSafeInsetLeft() + " dir " + cutout.getSafeInsetRight());
+        if (line.equals(lastScreenInsets)) return;
+        lastScreenInsets = line;
+        Log.i(TAG, line);
+        try (java.io.FileWriter writer = new java.io.FileWriter(sessionLogBase() + "_uso.log", true)) {
+            writer.write(new java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.ROOT).format(new java.util.Date())
+                    + "  " + line + "\n");
+        } catch (IOException ignored) {
+            // Logcat has it.
+        }
+    }
+
+    @Override
+    public void onWindowFocusChanged(boolean hasFocus) {
+        super.onWindowFocusChanged(hasFocus);
+        if (hasFocus) hideSystemBars();
+    }
+
     @Override
     protected void onResume() {
         super.onResume();
+        hideSystemBars();
+        // The game asks for the pointer capture again when the app comes back to the front; the
+        // surface has to have it too, so the next mouse event asks for it again.
+        lastMouseCapture = 0;
         if (inputManager != null) {
             inputManager.registerInputDeviceListener(this, null);
             refreshGamepads();
@@ -524,15 +643,58 @@ public final class GameActivity extends SDLActivity
                 (sources & InputDevice.SOURCE_JOYSTICK) == InputDevice.SOURCE_JOYSTICK;
     }
 
+    /*
+     * A keyboard or a mouse: the game always reads them as a controller (the SDK's MnK driver), so they are found
+     * the way a gamepad is. Phones list keyboards of their own: the volume and power keys, the fingerprint reader
+     * and the virtual keyboard of "adb shell input". None of them types letters, which is what a real keyboard
+     * does; the one that does and is not a gamepad is the player's.
+     */
+    private static boolean isKeyboard(InputDevice device) {
+        if (device == null || device.isVirtual() || isGamepad(device)) {
+            return false;
+        }
+        return (device.getSources() & InputDevice.SOURCE_KEYBOARD) == InputDevice.SOURCE_KEYBOARD &&
+                device.getKeyboardType() == InputDevice.KEYBOARD_TYPE_ALPHABETIC;
+    }
+
+    private static boolean isMouse(InputDevice device) {
+        if (device == null || device.isVirtual()) {
+            return false;
+        }
+        return (device.getSources() & InputDevice.SOURCE_MOUSE) == InputDevice.SOURCE_MOUSE;
+    }
+
+    /*
+     * Connected, and not only used: a keyboard or a mouse built into the device (a tablet's cover keyboard, a
+     * laptop's touchpad) is taken when it is used, not because it is there. Android 10 tells them apart; before
+     * it, only use counts.
+     */
+    private static boolean isExternal(InputDevice device) {
+        return Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && device.isExternal();
+    }
+
     private void refreshGamepads() {
         boolean any = false;
+        boolean anyKeyboard = false;
+        boolean anyMouse = false;
         for (int id : inputManager.getInputDeviceIds()) {
-            any |= isGamepad(inputManager.getInputDevice(id));
+            InputDevice device = inputManager.getInputDevice(id);
+            any |= isGamepad(device);
+            anyKeyboard |= (isKeyboard(device) || isMouse(device)) && isExternal(device);
+            anyMouse |= isMouse(device);
         }
         if (any) {
             controls.onGamepadActive();
         } else {
             controls.onGamepadGone();
+        }
+        if (anyKeyboard) {
+            controls.onKeyboardActive();
+        } else {
+            controls.onKeyboardGone();
+        }
+        if (!anyMouse) {
+            mouseSeen = false;
         }
     }
 
@@ -555,6 +717,8 @@ public final class GameActivity extends SDLActivity
     public boolean dispatchKeyEvent(KeyEvent event) {
         if (isGamepad(event.getDevice())) {
             controls.onGamepadActive();
+        } else if (isKeyboard(event.getDevice()) && !event.isSystem()) {
+            controls.onKeyboardActive();
         }
         return super.dispatchKeyEvent(event);
     }
@@ -564,7 +728,77 @@ public final class GameActivity extends SDLActivity
         if (isGamepad(event.getDevice())) {
             controls.onGamepadActive();
         }
+        if (TouchControlsView.isMouse(event)) {
+            // A mouse: the game reads it, and the touch pad gets out of the way.
+            onMouseUsed();
+            return deliverMouseToSurface(event);
+        }
         return super.dispatchGenericMotionEvent(event);
+    }
+
+    // ---- The mouse -----------------------------------------------------------------------------------------
+
+    /*
+     * The touch pad is drawn over the game's surface, so a mouse that moves over the screen goes to the pad
+     * and never reaches the game. The activity hands the mouse to the surface, which is where SDL waits for
+     * it (the surface's own touch and motion listeners).
+     */
+    @Override
+    public boolean dispatchTouchEvent(MotionEvent event) {
+        if (TouchControlsView.isMouse(event)) {
+            onMouseUsed();
+            if (mSurface != null) {
+                requestMouseCapture();
+                return mSurface.dispatchTouchEvent(event);
+            }
+            return false;
+        }
+        return super.dispatchTouchEvent(event);
+    }
+
+    /** The mouse's movement, to the game's surface. */
+    private boolean deliverMouseToSurface(MotionEvent event) {
+        if (mSurface == null) {
+            return false;
+        }
+        requestMouseCapture();
+        return mSurface.dispatchGenericMotionEvent(event);
+    }
+
+    /** A mouse moved or clicked: the touch pad gets out of the way, and the mouse is the game's from now on. */
+    private void onMouseUsed() {
+        mouseSeen = true;
+        controls.onKeyboardActive();
+    }
+
+    /*
+     * The pointer capture (Android 8 and later) is what makes the mouse report movement instead of a
+     * position, and so the camera follows it. The game asks for it too, but on the layout above the
+     * surface, and the surface is the view that reads the mouse: the capture is asked for here, and asked
+     * for again from time to time, so that it is the surface's and not the layout's. Only once a mouse was
+     * used: without one the pointer stays as it is.
+     */
+    private void requestMouseCapture() {
+        if (mSurface == null || !mouseSeen) {
+            return;
+        }
+        long now = android.os.SystemClock.uptimeMillis();
+        if (now - lastMouseCapture < MOUSE_CAPTURE_INTERVAL) {
+            return;
+        }
+        lastMouseCapture = now;
+        try {
+            mSurface.requestPointerCapture();
+        } catch (RuntimeException e) {
+            // Not every device allows it: the mouse then moves the camera by the distance it travels.
+            Log.w(TAG, "requestPointerCapture: " + e);
+        }
+    }
+
+    @Override
+    public boolean onCapturedMouse(MotionEvent event) {
+        // The pad holds the capture: the game's surface is under it and reads the mouse.
+        return mSurface != null && mSurface.onCapturedPointerEvent(event);
     }
 
     // ---- Tilt steering -------------------------------------------------------------------------------------
@@ -619,8 +853,7 @@ public final class GameActivity extends SDLActivity
         bar.setBackground(bg);
 
         TextView hint = new TextView(this);
-        hint.setText(tr("Toque um controle para escolhê-lo · arraste para mover · faça pinça para mudar o tamanho",
-                "Tap a control to pick it · drag to move it · pinch to resize it"));
+        hint.setText(tr(R.string.tap_a_control_to_pick_it));
         hint.setTextColor(0xCCFFFFFF);
         hint.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
         hint.setGravity(Gravity.CENTER);
@@ -628,12 +861,12 @@ public final class GameActivity extends SDLActivity
 
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
-        row.addView(toolButton(tr("Tamanho −", "Size −"), v -> controls.resizeSelected(1f / 1.12f)));
-        row.addView(toolButton(tr("Tamanho +", "Size +"), v -> controls.resizeSelected(1.12f)));
-        row.addView(toolButton(tr("Mostrar / ocultar", "Show / hide"), v -> controls.toggleSelectedVisible()));
-        row.addView(toolButton(tr("Ajustes", "Settings"), v -> showSettings()));
-        row.addView(toolButton(tr("Restaurar", "Reset"), v -> confirmReset()));
-        Button done = toolButton(tr("Pronto", "Done"), v -> controls.setEditing(false));
+        row.addView(toolButton(tr(R.string.size_smaller), v -> controls.resizeSelected(1f / 1.12f)));
+        row.addView(toolButton(tr(R.string.size_larger), v -> controls.resizeSelected(1.12f)));
+        row.addView(toolButton(tr(R.string.show_hide), v -> controls.toggleSelectedVisible()));
+        row.addView(toolButton(tr(R.string.settings), v -> showSettings()));
+        row.addView(toolButton(tr(R.string.reset), v -> confirmReset()));
+        Button done = toolButton(tr(R.string.done), v -> controls.setEditing(false));
         ((GradientDrawable) done.getBackground()).setColor(0xFFE07B00);
         row.addView(done);
         bar.addView(row);
@@ -663,11 +896,10 @@ public final class GameActivity extends SDLActivity
 
     private void confirmReset() {
         new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
-                .setTitle(tr("Restaurar controles", "Reset the controls"))
-                .setMessage(tr("Voltar à posição e ao tamanho originais de todos os controles?",
-                        "Put every control back in its original place and size?"))
-                .setPositiveButton(tr("Restaurar", "Reset"), (d, w) -> controls.resetLayout())
-                .setNegativeButton(tr("Cancelar", "Cancel"), null)
+                .setTitle(tr(R.string.reset_the_controls))
+                .setMessage(tr(R.string.put_every_control_back_in_its))
+                .setPositiveButton(tr(R.string.reset), (d, w) -> controls.resetLayout())
+                .setNegativeButton(tr(R.string.cancel), null)
                 .show();
     }
 
@@ -676,29 +908,29 @@ public final class GameActivity extends SDLActivity
         panel.setOrientation(LinearLayout.VERTICAL);
         panel.setPadding(dp(20), dp(8), dp(20), dp(8));
 
-        panel.addView(toggle(tr("Imagem esticada na tela inteira", "Image stretched to the whole screen"), controls.stretch, on -> {
+        panel.addView(toggle(tr(R.string.image_stretched_to_the_whole_screen), controls.stretch, on -> {
             controls.stretch = on;
             applyStretch(on);
         }));
-        panel.addView(toggle(tr("Vibrar ao tocar", "Vibrate on touch"), controls.haptics, on -> controls.haptics = on));
-        panel.addView(toggle(tr("Ocultar os controles ao usar um controle físico", "Hide the controls when a gamepad is used"), controls.hideWithGamepad,
+        panel.addView(toggle(tr(R.string.vibrate_on_touch), controls.haptics, on -> controls.haptics = on));
+        panel.addView(toggle(tr(R.string.hide_the_controls_when_a_gamepad), controls.hideWithGamepad,
                 on -> controls.hideWithGamepad = on));
-        panel.addView(toggle(tr("Direção inclinando o celular", "Steer by tilting the phone"), controls.tiltSteering, on -> {
+        panel.addView(toggle(tr(R.string.steer_by_tilting_the_phone), controls.tiltSteering, on -> {
             controls.tiltSteering = on;
             updateTiltListener();
         }));
-        panel.addView(slider(tr("Sensibilidade da inclinação", "Tilt sensitivity"), 50, 250,
+        panel.addView(slider(tr(R.string.tilt_sensitivity), 50, 250,
                 Math.round(controls.tiltSensitivity * 100), v -> controls.tiltSensitivity = v / 100f));
-        panel.addView(slider(tr("Opacidade dos controles", "Controls opacity"), 15, 100,
+        panel.addView(slider(tr(R.string.controls_opacity), 15, 100,
                 Math.round(controls.opacity * 100), v -> {
                     controls.opacity = v / 100f;
                     controls.invalidate();
                 }));
 
         new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
-                .setTitle(tr("Ajustes dos controles", "Controls settings"))
+                .setTitle(tr(R.string.controls_settings))
                 .setView(panel)
-                .setPositiveButton(tr("Fechar", "Close"), (d, w) -> controls.save())
+                .setPositiveButton(tr(R.string.close), (d, w) -> controls.save())
                 .setOnDismissListener(d -> controls.save())
                 .show();
     }

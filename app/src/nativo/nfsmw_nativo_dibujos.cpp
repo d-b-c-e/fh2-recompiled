@@ -227,6 +227,36 @@ REXCVAR_DEFINE_BOOL(fh2_nativo_cache_vertices_comprobar, false, "FH2",
                     "Native renderer (measurement): fingerprint each vertex cache hit against the guest data and count "
                     "the mismatches (they miss and copy as usual)")
     .lifecycle(rex::cvar::Lifecycle::kInitOnly);
+// Converted index ranges of 4 KB or more equal to an earlier frame are kept in their own persistent buffer and
+// reused while the guest has not written their pages (CacheIndicesEntreFotogramas, nfsmw_nativo_vertices_dedupe.h).
+// Same model as the vertex cache above, for the DMA path only (rectangle lists and quads generate their indices
+// and stay out). A hit skips the byte-swap conversion (IndicesDe16, NEON) and the upload copy.
+REXCVAR_DEFINE_BOOL(fh2_nativo_cache_indices, true, "FH2",
+                    "Native renderer: index cache across frames, kept valid by the write watch")
+    .lifecycle(rex::cvar::Lifecycle::kInitOnly);
+REXCVAR_DEFINE_BOOL(fh2_nativo_cache_indices_comprobar, false, "FH2",
+                    "Native renderer (measurement): fingerprint each index cache hit against the guest data and count "
+                    "the mismatches (they miss and copy as usual)")
+    .lifecycle(rex::cvar::Lifecycle::kInitOnly);
+// FH2's vertex fetch buffers (constants 88-95: instance data, bone matrices) were copied to the frame's upload buffer
+// the first time each frame used them: 2.0-2.8 GB per 10 s on the S23 Ultra and the POCO X7 Pro while the game had
+// written 0-2 MB of them. With this they live in a persistent buffer (CrearCacheBuscas) that binding 3 points to, and
+// a range of 4 KB or more is reused in later frames while the guest has not written its pages (same write watch as
+// the vertex cache).
+REXCVAR_DEFINE_BOOL(fh2_nativo_cache_buscas, true, "FH2",
+                    "Native renderer: FH2 vertex fetch buffers reused across frames, kept valid by the write watch")
+    .lifecycle(rex::cvar::Lifecycle::kInitOnly);
+// VS and PS constants are uploaded again whenever their generation changes (a register really changed), 2.0-2.4 and
+// 1.1-1.4 GB per 10 s on the S23 Ultra and the POCO X7 Pro. Draws often go back to a block they already uploaded in
+// the same submission (materials and objects alternate): with this an XXH3 of the block finds that copy and its
+// offset is bound again instead of writing the block to the upload buffer (no CPU cache on Mali and older Adreno).
+REXCVAR_DEFINE_BOOL(fh2_nativo_constantes_por_contenido, true, "FH2",
+                    "Native renderer: reuse an identical VS/PS constant block already uploaded in this submission")
+    .lifecycle(rex::cvar::Lifecycle::kInitOnly);
+REXCVAR_DEFINE_BOOL(fh2_nativo_cache_buscas_comprobar, false, "FH2",
+                    "Native renderer (measurement): fingerprint each fetch cache hit against the guest data and count "
+                    "the mismatches (they miss and copy as usual)")
+    .lifecycle(rex::cvar::Lifecycle::kInitOnly);
 REXCVAR_DEFINE_DOUBLE(fh2_nativo_a2c_umbral, 0.5, "FH2",
                       "Native renderer (test): alpha threshold that stands in for alpha to coverage, with "
                       "fh2_nativo_a2c_pontilhado off");
@@ -245,6 +275,20 @@ REXCVAR_DEFINE_BOOL(fh2_nativo_a2c_pontilhado, false, "FH2",
 REXCVAR_DEFINE_INT32(fh2_nativo_msaa, 0, "FH2",
                      "Native renderer: MSAA 2x/4x on the 3D scene (0 = off, 2, 4). Needs a restart.")
     .range(0, 4)
+    .lifecycle(rex::cvar::Lifecycle::kInitOnly);
+// The game draws its scene in many passes: only the first one clears, the others load what is there (after a
+// resolve, a pass on another target, a clear of another attachment). With transient multisample images those
+// went 1x, about two passes in three in the bush, and the trunks, the car and the bushes came out as jagged as
+// without MSAA. Persistent images keep the samples between passes (storeOp STORE, loadOp LOAD) at the price of
+// real memory for them (a 1280x1280 scene target at 4x: ~52 MB in color plus its depth) and of storing them.
+REXCVAR_DEFINE_BOOL(fh2_nativo_msaa_persistente, true, "FH2",
+                    "Native renderer: with MSAA, the multisample images keep their samples between passes, so the "
+                    "passes that continue the scene are antialiased too (more memory). false = transient images, "
+                    "only the passes that clear are multisampled")
+    .lifecycle(rex::cvar::Lifecycle::kInitOnly);
+REXCVAR_DEFINE_BOOL(fh2_nativo_msaa_a2c, false, "FH2",
+                    "Native renderer: with MSAA, foliage, fences and crowd use real alpha to coverage instead of the "
+                    "alpha test (softer edges, but grainy bushes on phones)")
     .lifecycle(rex::cvar::Lifecycle::kInitOnly);
 REXCVAR_DEFINE_BOOL(nfsmw_nativo_omitir_sombras, false, "NFSMW",
                     "Renderizador nativo (prueba de FPS): no graba los dibujos del mapa de sombras "
@@ -732,6 +776,14 @@ REXCVAR_DEFINE_INT32(nfsmw_nativo_anisotropico, 0, "NFSMW",
                      "distancia); 2, 4, 8 o 16 = mas nitido, con coste de GPU")
     .range(0, 16)
     .lifecycle(rex::cvar::Lifecycle::kInitOnly);
+REXCVAR_DEFINE_BOOL(fh2_nativo_sesgo_mip, true, "FH2",
+                    "Native renderer: apply the mip bias each texture's fetch constant asks for (FH2 sharpens "
+                    "foliage and others with -0.375 to -3), as the emulated renderer does. false = ignored, as before")
+    .lifecycle(rex::cvar::Lifecycle::kInitOnly);
+REXCVAR_DEFINE_BOOL(fh2_nativo_mips_cubo, true, "FH2",
+                    "Native renderer: the car reflection cube with the mip levels the game resolves for it (the "
+                    "paint samples the blurred ones). false = only the base level, as before")
+    .lifecycle(rex::cvar::Lifecycle::kInitOnly);
 
 /*
  * Alley door diagnostic (nfsmw_nativo_diag_mip_minimo).
@@ -1050,6 +1102,10 @@ REXCVAR_DEFINE_BOOL(fh2_nativo_diag_vacias_blancas, false, "FH2",
 REXCVAR_DEFINE_BOOL(fh2_nativo_diag_luces, false, "FH2",
                     "Native renderer (debug): log the boolean constants the game sets (every 10 s) and the headlights' "
                     "parameters (pixel shader c168, c169) of a draw with the deferred light contribution on");
+#if defined(FH2_RECOMP)
+REXCVAR_DECLARE(double, fh2_mundo_grama);  // app/src/fh2_mundo.cpp
+REXCVAR_DECLARE(double, fh2_mundo_multidao);
+#endif
 REXCVAR_DEFINE_BOOL(fh2_nativo_diag_elementos, false, "FH2",
                     "Native renderer (debug): log each declared vertex element's fetch as the D3D patched it (format, "
                     "stride, offset, swizzle), once per vertex shader");
@@ -1127,6 +1183,30 @@ REXCVAR_DEFINE_BOOL(nfsmw_nativo_clave_canonica, false, "NFSMW",
  * nothing bound. It removes the repeated vkCmdBindPipeline of a pass's first draw (the counter's "same key
  * after starting a pass"). false = forgotten at every pass, as before.
  */
+/*
+ * The vertex stage of a pass does not wait for the previous passes (fh2_nativo_vertices_sin_espera).
+ *
+ * Every render pass declared external dependencies whose destination included the vertex shader stage
+ * (DependenciasImagenes), on both sides: the vertex work of each pass waited for all the fragment work before it.
+ * On a tiler that is a drain per pass: the next pass's binning cannot overlap the previous pass's shading, and FH2
+ * opens ~88 passes per frame (S23 Ultra, 2026-10-18). The Moto G9 Play stays at 99 % GPU even at 12 % resolution,
+ * where the pixels cost nothing and these bubbles do.
+ *
+ * Only one thing needs that wait: a vertex shader that samples an image written by earlier GPU work (the
+ * composite's exposure reads the adapted luminance in its vertex shader). Vertex, index and fetch data are written
+ * by the CPU and become visible with the submission. So the dependencies leave the vertex stage out, and a draw
+ * whose vertex shader has samplers gets an explicit barrier before its pass (BarreraVertices); one that arrives
+ * inside a pass opened without it closes that pass and reopens it (loadOp = LOAD, nothing lost). The C6 line
+ * "vertices sin espera" counts both. Every render pass of the session must declare the same dependencies (they are
+ * part of render pass compatibility), so this is read once. false = the vertex stage waits, as before.
+ */
+// OFF by default: A/B with the car stopped in the same spot (2026-10-18) gave no measurable gain, S23 Ultra 29.9-34.5
+// vs 29.7-34.0 fps and Moto G9 Play 17.3-17.6 vs 17.0-17.3, GPU at 99-100 % either way. The drivers seem to serialize
+// render passes anyway; kept for later tests (launcher toggle).
+REXCVAR_DEFINE_BOOL(fh2_nativo_vertices_sin_espera, false, "FH2",
+                    "Native renderer: a pass's vertex work does not wait for the previous passes' fragments; vertex "
+                    "shaders that sample images get their own barrier")
+    .lifecycle(rex::cvar::Lifecycle::kInitOnly);
 REXCVAR_DEFINE_BOOL(nfsmw_nativo_pipeline_entre_pases, true, "NFSMW",
                     "Renderizador nativo (25/09, build 184): el pipeline enlazado se conserva al empezar un pase del "
                     "mismo bufer de comandos (Vulkan lo conserva). false = se vuelve a enlazar en cada pase, como "
@@ -2358,6 +2438,10 @@ class DibujosVulkanImpl final : public DibujosVulkan {
     PararPrecalentado();  // uses the pipeline cache and the layout: first
     PararCopias();
     DestruirCacheVertices();  // after the copy thread, which may still write to it
+    DestruirCacheIndices();
+#if defined(FH2_RECOMP)
+    DestruirCacheBuscas();
+#endif
     PararEnlaces();  // in-flight vkBindImageMemory calls finish before any image is destroyed
     PararHuellas();  // the hash thread writes to the upload buffer: join it before releasing that
     GuardarCachePipelines();
@@ -2432,6 +2516,10 @@ class DibujosVulkanImpl final : public DibujosVulkan {
   }
 
   bool Inicializar() {
+#if defined(FH2_RECOMP)
+    fh2_vegetacion_ = float(REXCVAR_GET(fh2_mundo_grama));
+    fh2_sin_multidao_ = REXCVAR_GET(fh2_mundo_multidao) <= 0;
+#endif
     const auto& propiedades = dispositivo_->properties();
     const std::pair<bool, const char*> requisitos[] = {
         {propiedades.independentBlend, "independentBlend"},
@@ -2577,6 +2665,16 @@ class DibujosVulkanImpl final : public DibujosVulkan {
         return Fh2DiagSalida(p, __LINE__, true);
       }
     }
+#if defined(FH2_RECOMP)
+    // fh2_mundo_grama = 0: no procedural vegetation (bushes and tufts), in any pass.
+    if (fh2_vegetacion_ <= 0.0f && p.vs->fh2_fade_vegetacion >= 0) {
+      return Fh2DiagSalida(p, __LINE__, true);
+    }
+    // fh2_mundo_multidao = 0: no crowd (21 % fewer draws in the festival on the PC).
+    if (fh2_sin_multidao_ && p.vs->fh2_multidao) {
+      return Fh2DiagSalida(p, __LINE__, true);
+    }
+#endif
     const uint32_t iniciador = r[gr::XE_GPU_REG_VGT_DRAW_INITIATOR];
     const uint32_t tipo = iniciador & 0x3F;
     const uint32_t fuente = (iniciador >> 6) & 0x3;
@@ -2967,6 +3065,12 @@ class DibujosVulkanImpl final : public DibujosVulkan {
     uint32_t vmax = 0;
     bool con_indices = false;
     bool indices_de_16 = false;  // in indices16_ instead of indices_
+    bool indices_en_cache = false;  // fh2_nativo_cache_indices: converted copy reused, skip conversion and upload
+    uint64_t offset_indices_cache = 0;
+    CacheIndicesEntreFotogramas::Clave clave_indices_cache;
+    uint32_t tick_indices_cache = 0;
+    uint64_t huella_indices_cache = 0;
+    bool reserva_indices_cache = false;  // a miss with room reserved: the converted copy goes to the cache
     indices_.clear();
     if (fuente == uint32_t(xenos::SourceSelect::kDMA)) {
       const uint32_t tamano = r[gr::XE_GPU_REG_VGT_DMA_SIZE];
@@ -2986,8 +3090,53 @@ class DibujosVulkanImpl final : public DibujosVulkan {
       }
       const uint8_t* datos = memoria_->TranslatePhysical(base & 0x1FFFFFFF);
       const uint32_t indice_reinicio = r[gr::XE_GPU_REG_VGT_MULTI_PRIM_IB_RESET_INDX] & 0xFFFFFF;
-      if (!indices32 && !reinicio && !desplazamiento && !cuadrilateros &&
-          (orden == xenos::Endian::k8in16 || orden == xenos::Endian::kNone)) {
+      // fh2_nativo_cache_indices: a converted copy of this DMA range from an earlier submission that the guest
+      // has not rewritten (see CacheIndicesEntreFotogramas). Quad lists rewrite theirs below and stay out;
+      // rectangle lists never come through DMA. Everything that changes the converted result is in the key.
+      const uint32_t bytes_por_indice = indices32 ? 4 : 2;
+      const CacheIndicesEntreFotogramas::Clave clave_indices{
+          uint64_t(base & 0x1FFFFFFF), cuenta, indice_reinicio, desplazamiento,
+          uint8_t(bytes_por_indice), uint8_t(uint32_t(orden)), uint8_t(reinicio ? 1 : 0)};
+      // The conversion below writes 16-bit indices only on this path; restart, an added offset or 32-bit guest
+      // indices come out as 32 bits, twice the guest size for 16-bit ones.
+      const bool salida_de_16 = !indices32 && !reinicio && !desplazamiento && !cuadrilateros &&
+                                (orden == xenos::Endian::k8in16 || orden == xenos::Endian::kNone);
+      if (cache_indices_activo_ && !cuadrilateros && cache_indices_.Admite(clave_indices)) {
+        const uint64_t bytes_cache = uint64_t(cuenta) * bytes_por_indice;  // guest bytes (watch, fingerprint)
+        // What the converted copy takes in the cache's buffer. Reserving the guest size here let the 32-bit
+        // conversion of 16-bit indices overflow into the next cached range (its draw then used another mesh's
+        // indices: shards out of the player's car, 2026-10-18; very likely the 2026-10-14 green wall too).
+        const uint64_t bytes_convertidos = uint64_t(cuenta) * (salida_de_16 ? 2 : 4);
+        const uint64_t huella = cache_indices_comprobar_ ? XXH3_64bits(datos, size_t(bytes_cache)) : 0;
+        uint64_t offset_cache = 0;
+        uint64_t huella_copia = 0;
+        if (cache_indices_.Buscar(clave_indices, offset_cache, vmin, vmax, indices_de_16, huella,
+                                  cache_indices_comprobar_ ? &huella_copia : nullptr)) {
+          indices_en_cache = true;
+          offset_indices_cache = offset_cache;
+          // Check mode: the guest data matched (huella); also prove the stored converted copy is still the one
+          // written there. A mismatch means the persistent buffer was overwritten: counted, and this draw
+          // converts and uploads as usual.
+          if (cache_indices_comprobar_ &&
+              XXH3_64bits(cache_indices_datos_ + offset_cache, size_t(bytes_convertidos)) != huella_copia) {
+            cache_indices_.Pisada();
+            indices_en_cache = false;
+            vmin = UINT32_MAX;
+            vmax = 0;
+            indices_de_16 = false;
+          }
+        } else if (cache_indices_.Reservar(uint32_t(bytes_convertidos), offset_cache, tick_indices_cache)) {
+          // A miss with room: the watch is enabled before the conversion reads the guest range below (a
+          // write from here on makes this copy stale), like the vertex cache before its copy.
+          memoria_->EnablePhysicalMemoryAccessCallbacks(uint32_t(base & 0x1FFFFFFF), uint32_t(bytes_cache),
+                                                        true, false);
+          clave_indices_cache = clave_indices;
+          huella_indices_cache = huella;
+          offset_indices_cache = offset_cache;
+          reserva_indices_cache = true;
+        }
+      }
+      if (!indices_en_cache && salida_de_16) {
         // The normal case in NFSMW: 16 bits without restart or offset. They are uploaded as 16 bits, with a
         // branch-free loop the compiler can vectorize.
         indices16_.resize(cuenta);
@@ -2999,7 +3148,7 @@ class DibujosVulkanImpl final : public DibujosVulkan {
         vmin = minimo;
         vmax = maximo;
         indices_de_16 = true;
-      } else {
+      } else if (!indices_en_cache) {
         indices_.resize(cuenta);
         uint32_t* salida = indices_.data();
         for (uint32_t i = 0; i < cuenta; ++i) {
@@ -3616,8 +3765,11 @@ class DibujosVulkanImpl final : public DibujosVulkan {
     }
     Etapa(2, marca);
     // --- Upload buffer space ----------------------------------------------------------
+    // On an index cache hit the conversion was skipped and indices16_ still holds the previous draw's.
     const VkDeviceSize bytes_indices =
-        indices_de_16 ? VkDeviceSize(indices16_.size()) * 2 : VkDeviceSize(indices_.size()) * 4;
+        indices_en_cache ? VkDeviceSize(cuenta) * (indices_de_16 ? 2 : 4)
+        : indices_de_16  ? VkDeviceSize(indices16_.size()) * 2
+                         : VkDeviceSize(indices_.size()) * 4;
     // With a single binding the copy goes to a multiple of the stride: up to stride - 4 bytes of padding.
     const VkDeviceSize hueco_base_cero =
         vertices_base_cero_ && entrada->enlaces.size() == 1 ? VkDeviceSize(entrada->enlaces[0].zancada) : 0;
@@ -3630,6 +3782,7 @@ class DibujosVulkanImpl final : public DibujosVulkan {
     };
     std::array<BusquedaFh2, 8> buscas_fh2{};
     VkDeviceSize bytes_buscas_fh2 = 0;
+    uint32_t rangos_buscas_fh2 = 0;
     if (p.vs && p.vs->fh2_buscas) {
       for (uint32_t k = 0; k < 8; ++k) {
         const uint32_t d0 = r[kRegFetch + (88 + k) * 2], d1 = r[kRegFetch + (88 + k) * 2 + 1];
@@ -3640,10 +3793,12 @@ class DibujosVulkanImpl final : public DibujosVulkan {
         if (!palabras || uint64_t(direccion) + uint64_t(palabras) * 4 > kMemoriaFisica) continue;
         buscas_fh2[k] = {direccion, palabras, static_cast<xenos::Endian>(d1 & 0x3)};
         bytes_buscas_fh2 += VkDeviceSize(palabras) * 4 + 4;
+        ++rangos_buscas_fh2;
       }
     }
 #else
     const VkDeviceSize bytes_buscas_fh2 = 0;
+    constexpr uint32_t rangos_buscas_fh2 = 0;
 #endif
     const VkDeviceSize necesarios = bytes_buscas_fh2 + hueco_base_cero + bytes_vertices + bytes_indices + bytes_texturas +
                                     2 * VkDeviceSize(kRegistrosConstantes) * 4 +
@@ -3659,19 +3814,38 @@ class DibujosVulkanImpl final : public DibujosVulkan {
     const bool compartidas_llenas =
         compartidas_aparte_ && usar_ubo_ &&
         compartidas_usado_ + kUboBytesCompartidas + alineacion_ubo_ > kTamanoCompartidas;
-    if (subida_usado_ + necesarios > kTamanoSubida || compartidas_llenas) {
+    // fh2_nativo_cache_buscas: every copy of this draw may end up in the slot's transient area (BuscaTransitoria);
+    // when it has no room left, submit first, as with a full upload buffer (the next slot starts with an empty one).
+    const bool buscas_llenas = cache_buscas_activo_ && rangos_buscas_fh2 &&
+                               buscas_transitoria_usado_ + bytes_buscas_fh2 + 4 * rangos_buscas_fh2 >
+                                   kBuscasTransitoria;
+    if (subida_usado_ + necesarios > kTamanoSubida || compartidas_llenas || buscas_llenas) {
       const auto antes_envio = std::chrono::steady_clock::now();
       const bool enviado = contexto_->EnviarYEsperar();
       ++envios_llenos_;
       if (compartidas_llenas && subida_usado_ + necesarios <= kTamanoSubida) {
         ++envios_llenos_compartidas_;
       }
+      envios_llenos_buscas_ += buscas_llenas ? 1 : 0;
       ns_envios_llenos_ += uint64_t(std::chrono::duration_cast<std::chrono::nanoseconds>(
                                         std::chrono::steady_clock::now() - antes_envio)
                                         .count());
       if (!enviado) {
         return Fh2DiagSalida(p, __LINE__, false);
       }
+      if (buscas_llenas && bytes_buscas_fh2 + 4 * rangos_buscas_fh2 > kBuscasTransitoria) {
+        return Rechazar(14, "buscas mayores que su zona transitoria");
+      }
+    }
+    // fh2_nativo_vertices_sin_espera: a vertex shader that samples needs everything written before it visible to the
+    // vertex stage, which the passes' dependencies no longer give. The barrier goes outside a pass: one opened
+    // without it closes here and the draw reopens it below.
+    if (vertices_sin_espera_ && p.vs && !p.vs->samplers.empty() && !(pase_activo_ && pase_vs_sincronizado_)) {
+      if (pase_activo_) {
+        TerminarPase();
+        ++vs_pases_reabiertos_;
+      }
+      BarreraVertices();
     }
 
     // --- Render pass ----------------------------------------------------------------
@@ -3696,11 +3870,12 @@ class DibujosVulkanImpl final : public DibujosVulkan {
 #endif
     if (clave_pase_rapida_ && pase_claves_validas_ && std::memcmp(claves, pase_claves_, sizeof(claves)) == 0
 #if defined(FH2_RECOMP)
-        && muestras_max == muestras_pase_
+        && muestras_max == muestras_pedidas_pase_
 #endif
     ) {
       const uint64_t n = ++claves_pase_rapidas_;
-      clave_pase = (n <= kClavesPaseAComprobar || (n & 4095) == 0) ? ComprobarClavePase(claves, n) : pase_clave_;
+      clave_pase = (n <= kClavesPaseAComprobar || (n & 4095) == 0) ? ComprobarClavePase(claves, n, muestras_max)
+                                                                     : pase_clave_;
     } else {
 #if defined(FH2_RECOMP)
       clave_pase = XXH3_64bits_withSeed(claves, sizeof(claves), muestras_max);
@@ -3859,12 +4034,23 @@ class DibujosVulkanImpl final : public DibujosVulkan {
         uint32_t* w = compartidas + kBuscas + k * 4;
         w[0] = w[1] = w[2] = w[3] = 0;
         if (!b.palabras) continue;
-        VkDeviceSize offset;
+        VkDeviceSize offset = 0;
         // Not through the upload deduplication: FH2 rewrites its per-draw buffers during the frame without a wait the
         // ring sees (measured with a full hash). Ranges from 4 KB are reused while the guest has not written their
         // pages (Fh2Vigilado); smaller ones are copied every time.
         const uint8_t* datos_busca = static_cast<const uint8_t*>(memoria_->TranslatePhysical(b.direccion));
         const uint32_t bytes_busca = b.palabras * 4;
+        // fh2_nativo_cache_buscas: a range it admits (4 KB to 1 MB, not rewritten every frame) is reused across
+        // frames; the others take the per-submission path below, copied into the same persistent buffer.
+        if (cache_buscas_activo_ && cache_buscas_.Admite(b.direccion, bytes_busca)) {
+          if (!CopiarBuscaEnCache(b.direccion, b.palabras, b.orden, datos_busca, offset)) {
+            continue;  // no room (cannot happen after the check above): the fetch reads nothing, counted
+          }
+          w[0] = uint32_t(offset / 4);  // in dwords from the start of the fetch cache's buffer (binding 3)
+          w[1] = b.palabras;
+          w[2] = 0;  // already in host byte order
+          continue;
+        }
         Fh2Vigilado* vigilado = nullptr;
         uint32_t motivo = 0;  // why it is copied (bytes per reason in the 10 s report)
         if (fh2_vigilancia_ && bytes_busca >= (4u << 10)) {
@@ -3921,41 +4107,30 @@ class DibujosVulkanImpl final : public DibujosVulkan {
             vigilado->sucio.store(0, std::memory_order_release);
             memoria_->EnablePhysicalMemoryAccessCallbacks(b.direccion, bytes_busca, true, false);
           }
-          cat_subida_ = 1;
-          Reservar(VkDeviceSize(bytes_busca), 4, offset);
-          CopiarVertices(TrabajoCopia{datos_busca, subida_datos_ + offset, b.palabras, b.orden});
+          if (cache_buscas_activo_) {
+            // Binding 3 points at the fetch cache's buffer: the copy goes to this slot's transient area, alive until
+            // the GPU finishes this submission, so the per-submission reuse above holds.
+            if (!BuscaTransitoria(bytes_busca, offset)) {
+              ++buscas_sin_sitio_;
+              if (vigilado) {
+                vigilado->fotograma = 0;  // its old offset holds what the guest has since rewritten
+              }
+              continue;
+            }
+            CopiarVertices(TrabajoCopia{datos_busca, cache_buscas_datos_ + offset, b.palabras, b.orden});
+            AnotarCopiaBusca(offset, bytes_busca);
+          } else {
+            cat_subida_ = 1;
+            Reservar(VkDeviceSize(bytes_busca), 4, offset);
+            CopiarVertices(TrabajoCopia{datos_busca, subida_datos_ + offset, b.palabras, b.orden});
+          }
           if (vigilado) {
             vigilado->fotograma = uint32_t(b.orden) == 2 ? fotograma_ : 0;
             vigilado->epoca = epoca_subida_;
             vigilado->offset = offset;
             ++fh2_vigilados_copiados_;
           }
-          // The 10 s report looks at the clock once every 1024 copied fetches, not on each (~160,000 per second).
-          static auto ultimo = std::chrono::steady_clock::now();
-          static uint32_t copias_desde_reloj = 0;
-          if ((++copias_desde_reloj & 1023) == 0 && std::chrono::steady_clock::now() - ultimo > std::chrono::seconds(10)) {
-            ultimo = std::chrono::steady_clock::now();
-            REXLOG_INFO("[fh2 nativo] buscas vigiladas: {} rangos, {} reusadas, {} copiadas, {} avisos de escritura, "
-                        "tabla reiniciada {} veces",
-                        fh2_vigilados_n_.load(), fh2_vigilados_reusados_, fh2_vigilados_copiados_,
-                        fh2_avisos_escritura_.load(), fh2_vigilados_reinicios_);
-            double motivos[6];
-            for (size_t m = 0; m < 6; ++m) {
-              motivos[m] = double(fh2_bytes_busca_motivo_[m]) / 1048576.0;
-              fh2_bytes_busca_motivo_[m] = 0;
-            }
-            REXLOG_INFO("[fh2 nativo] buscas copiadas en 10 s (MB): menos de 4 KB {:.0f}, tabla llena {:.0f}, primera vez "
-                        "en el fotograma {:.0f}, otro bufer de subida {:.0f}, escritas por el juego {:.0f}, otro orden "
-                        "{:.0f}", motivos[0], motivos[1], motivos[2], motivos[3], motivos[4], motivos[5]);
-            double mb[7];
-            for (size_t c = 0; c < 7; ++c) {
-              mb[c] = double(bytes_por_categoria_[c] - bytes_por_categoria_previos_[c]) / 1048576.0;
-            }
-            bytes_por_categoria_previos_ = bytes_por_categoria_;
-            REXLOG_INFO("[fh2 nativo] subidas en 10 s (MB): vertices {:.0f} buscas {:.0f} indices {:.0f} constantes VS "
-                        "{:.0f} PS {:.0f} compartidas {:.0f} texturas {:.0f}",
-                        mb[0], mb[1], mb[2], mb[3], mb[4], mb[5], mb[6]);
-          }
+          InformeBuscas();
         }
         w[0] = uint32_t(offset / 4);  // in dwords from the start of the upload buffer (binding 3 covers it whole)
         w[1] = b.palabras;
@@ -3992,28 +4167,73 @@ class DibujosVulkanImpl final : public DibujosVulkan {
 #endif
     VkDeviceSize offset_indices = 0;
     if (con_indices) {
-      cat_subida_ = 2;
-      Reservar(bytes_indices, 4, offset_indices);
-      bytes_indices_subidos_ += bytes_indices;
-      std::memcpy(subida_datos_ + offset_indices,
-                  indices_de_16 ? static_cast<const void*>(indices16_.data())
-                                : static_cast<const void*>(indices_.data()),
-                  size_t(bytes_indices));
+      if (indices_en_cache) {
+        offset_indices = VkDeviceSize(offset_indices_cache);
+      } else if (reserva_indices_cache) {
+        // fh2_nativo_cache_indices: the miss reserved room above; the converted copy goes to the persistent
+        // buffer (already swapped, plain copy like the upload one) instead of the upload buffer.
+        std::memcpy(cache_indices_datos_ + offset_indices_cache,
+                    indices_de_16 ? static_cast<const void*>(indices16_.data())
+                                  : static_cast<const void*>(indices_.data()),
+                    size_t(bytes_indices));
+        cache_indices_.Anotar(clave_indices_cache, offset_indices_cache, tick_indices_cache,
+                              huella_indices_cache, vmin, vmax, indices_de_16,
+                              cache_indices_comprobar_
+                                  ? XXH3_64bits(cache_indices_datos_ + offset_indices_cache, size_t(bytes_indices))
+                                  : 0);
+        cache_indices_escrito_min_ =
+            std::min<VkDeviceSize>(cache_indices_escrito_min_, VkDeviceSize(offset_indices_cache));
+        cache_indices_escrito_max_ = std::max<VkDeviceSize>(
+            cache_indices_escrito_max_, VkDeviceSize(offset_indices_cache) + bytes_indices);
+        offset_indices = VkDeviceSize(offset_indices_cache);
+        indices_en_cache = true;
+      } else {
+        cat_subida_ = 2;
+        Reservar(bytes_indices, 4, offset_indices);
+        bytes_indices_subidos_ += bytes_indices;
+        std::memcpy(subida_datos_ + offset_indices,
+                    indices_de_16 ? static_cast<const void*>(indices16_.data())
+                                  : static_cast<const void*>(indices_.data()),
+                    size_t(bytes_indices));
+      }
     }
     // Only the registers each shader reads (EntradaShader::constantes_bytes). With the same generation, the
     // copy is reused if it already covers what this shader needs.
     const uint32_t bytes_vs = std::min<uint32_t>(p.vs->constantes_bytes, kRegistrosConstantes * 4);
-    if (constantes_vs_generacion_ != p.generacion_constantes_vs ||
-        constantes_vs_epoca_ != epoca_subida_ || bytes_vs > constantes_vs_bytes_) {
+    // fh2_mundo_grama: the procedural vegetation's fade distances (FadeValues.x and .y, in metres) scaled in a copy of
+    // this draw's constants, which the next draw does not reuse. The game's own registers stay as they are.
+    bool vegetacion_escalada = false;
+#if defined(FH2_RECOMP)
+    const int32_t registro_fade = p.vs->fh2_fade_vegetacion;
+    if (fh2_vegetacion_ != 1.0f && registro_fade >= 0 && bytes_vs >= uint32_t(registro_fade + 1) * 16) {
+      cat_subida_ = 3;
+      Reservar(usar_ubo_ ? std::max<VkDeviceSize>(bytes_vs, kUboBytesVs) : bytes_vs,
+               usar_ubo_ ? alineacion_ubo_ : 16, constantes_vs_offset_);
+      std::memcpy(subida_datos_ + constantes_vs_offset_, r + kRegConstantesVs, bytes_vs);
+      auto* fade = reinterpret_cast<float*>(subida_datos_ + constantes_vs_offset_) + registro_fade * 4;
+      fade[0] *= fh2_vegetacion_;  // where each plant starts to fade out
+      fade[1] *= fh2_vegetacion_;  // where it is gone
+      constantes_vs_generacion_ = UINT64_MAX;
+      constantes_vs_epoca_ = epoca_subida_;
+      constantes_vs_bytes_ = bytes_vs;
+      vegetacion_escalada = true;
+    }
+#endif
+    if (!vegetacion_escalada && (constantes_vs_generacion_ != p.generacion_constantes_vs ||
+        constantes_vs_epoca_ != epoca_subida_ || bytes_vs > constantes_vs_bytes_)) {
       // Why they are uploaded again (measurement only; each upload is another set 4 offset).
       ++resubidas_vs_[constantes_vs_generacion_ != p.generacion_constantes_vs ? 0
                       : constantes_vs_epoca_ != epoca_subida_                 ? 1
                                                                               : 2];
-      // With UBOs the block goes whole (the driver may read the full range) and aligned to the device minimum
-      cat_subida_ = 3;
-      Reservar(usar_ubo_ ? std::max<VkDeviceSize>(bytes_vs, kUboBytesVs) : bytes_vs, usar_ubo_ ? alineacion_ubo_ : 16,
-               constantes_vs_offset_);
-      std::memcpy(subida_datos_ + constantes_vs_offset_, r + kRegConstantesVs, bytes_vs);
+      // fh2_nativo_constantes_por_contenido: the same block already uploaded in this submission is bound again.
+      if (!BloqueConstantesRepetido(0, r + kRegConstantesVs, bytes_vs, constantes_vs_offset_)) {
+        // With UBOs the block goes whole (the driver may read the full range) and aligned to the device minimum
+        cat_subida_ = 3;
+        Reservar(usar_ubo_ ? std::max<VkDeviceSize>(bytes_vs, kUboBytesVs) : bytes_vs,
+                 usar_ubo_ ? alineacion_ubo_ : 16, constantes_vs_offset_);
+        std::memcpy(subida_datos_ + constantes_vs_offset_, r + kRegConstantesVs, bytes_vs);
+        AnotarBloqueConstantes(0, bytes_vs, constantes_vs_offset_);
+      }
       constantes_vs_generacion_ = p.generacion_constantes_vs;
       constantes_vs_epoca_ = epoca_subida_;
       constantes_vs_bytes_ = bytes_vs;
@@ -4025,10 +4245,13 @@ class DibujosVulkanImpl final : public DibujosVulkan {
       ++resubidas_ps_[constantes_ps_generacion_ != p.generacion_constantes_ps ? 0
                       : constantes_ps_epoca_ != epoca_subida_                 ? 1
                                                                               : 2];
-      cat_subida_ = 4;
-      Reservar(usar_ubo_ ? std::max<VkDeviceSize>(bytes_ps, kUboBytesPs) : bytes_ps, usar_ubo_ ? alineacion_ubo_ : 16,
-               constantes_ps_offset_);
-      std::memcpy(subida_datos_ + constantes_ps_offset_, r + kRegConstantesPs, bytes_ps);
+      if (!BloqueConstantesRepetido(1, r + kRegConstantesPs, bytes_ps, constantes_ps_offset_)) {
+        cat_subida_ = 4;
+        Reservar(usar_ubo_ ? std::max<VkDeviceSize>(bytes_ps, kUboBytesPs) : bytes_ps,
+                 usar_ubo_ ? alineacion_ubo_ : 16, constantes_ps_offset_);
+        std::memcpy(subida_datos_ + constantes_ps_offset_, r + kRegConstantesPs, bytes_ps);
+        AnotarBloqueConstantes(1, bytes_ps, constantes_ps_offset_);
+      }
       constantes_ps_generacion_ = p.generacion_constantes_ps;
       constantes_ps_epoca_ = epoca_subida_;
       constantes_ps_bytes_ = bytes_ps;
@@ -4094,6 +4317,7 @@ class DibujosVulkanImpl final : public DibujosVulkan {
     }
 #endif
     const uint32_t control_color = r[gr::XE_GPU_REG_RB_COLORCONTROL];
+    bool a2c_real = false;  // alpha to coverage in an MSAA pass (see below)
     float umbral_alfa = 0.0f;
     uint32_t funcion_alfa = 7;  // always
     // The 8 Xenos functions (0 never, 1 <, 2 ==, 3 <=, 4 >, 5 !=, 6 >=, 7 always) with alphaTestValue
@@ -4112,7 +4336,14 @@ class DibujosVulkanImpl final : public DibujosVulkan {
     // (spirv_translator_rb.cpp) gives each pixel of a 2x2 block the threshold 1 - offset / 4, with the 2-bit
     // offsets of bits 24-31, and the leaves look full and soft at the edges; at 0.5 everywhere they came out
     // thinner and harder. The offsets go to the shader in the threshold's constant (alphaTestValue).
-    else if (ps && ((control_color >> 4) & 0x1)) {
+    // fh2_nativo_msaa_a2c: in an MSAA pass, real alpha to coverage (the pipeline's alphaToCoverageEnable). Off by
+    // default: on the phone, at 2x and 4x, the bushes' soft alpha turned into scattered coverage dots ("flour").
+    // Only for draws that write color with the whole shader: the coverage comes from location 0's alpha, which the
+    // "no color" variant (kSpecSoloAlfa) prunes.
+    else if (ps && ((control_color >> 4) & 0x1) && muestras_pase_ >= 2 && mascaras && !solo_alfa &&
+             REXCVAR_GET(fh2_nativo_msaa_a2c)) {
+      a2c_real = true;
+    } else if (ps && ((control_color >> 4) & 0x1)) {
       funcion_alfa = 6;  // >=
       if (REXCVAR_GET(fh2_nativo_a2c_pontilhado)) {
         umbral_alfa = float(control_color >> 24);
@@ -4351,6 +4582,7 @@ class DibujosVulkanImpl final : public DibujosVulkan {
     // fh2_nativo_msaa: the pass's sample count (0 = one sample). Pipelines only match passes with the same
     // count; the old prewarm list is cleanly rejected by its record-size check and rewarmed.
     clave.muestras = muestras_pase_;
+    clave.muestras_reserva = a2c_real ? 1u : 0u;  // bit 0: alphaToCoverageEnable
 #endif
     std::copy(std::begin(pase_formatos_), std::end(pase_formatos_), std::begin(clave.formatos));
     static constexpr uint32_t kMezcla[4] = {
@@ -4509,7 +4741,7 @@ class DibujosVulkanImpl final : public DibujosVulkan {
        * more than one per frame, nothing is deferred: there is a guard below.
        */
       const uint32_t indices_dibujo =
-          uint32_t(indices_de_16 ? indices16_.size() : indices_.size());
+          indices_en_cache ? cuenta : uint32_t(indices_de_16 ? indices16_.size() : indices_.size());
       const bool geometria_de_domo = indices_dibujo == kIndicesDomoCielo;
       const bool primero_del_pase = dibujos_en_pase_ == 0;
       /* The full criterion, without the cvar or the guard: what is measured during the test. */
@@ -4569,7 +4801,7 @@ class DibujosVulkanImpl final : public DibujosVulkan {
       // point to the same data.
       CieloAplazado& c = cielo_;
       c.pipeline = pipeline;
-      c.bufer = subida_;
+      c.bufer = indices_en_cache ? cache_indices_bufer_ : subida_;
       c.usa_ubo = usar_ubo_;
       c.push[0] = subida_direccion_ + constantes_vs_offset_;
       c.push[1] = subida_direccion_ + constantes_ps_offset_;
@@ -4593,7 +4825,7 @@ class DibujosVulkanImpl final : public DibujosVulkan {
       }
       c.con_indices = con_indices;
       c.indices_de_16 = indices_de_16;
-      c.indices = uint32_t(indices_de_16 ? indices16_.size() : indices_.size());
+      c.indices = indices_en_cache ? cuenta : uint32_t(indices_de_16 ? indices16_.size() : indices_.size());
       c.primer_indice = uint32_t(offset_indices / (indices_de_16 ? 2 : 4));
       c.vmin = vmin;
       c.cuenta = cuenta;
@@ -4712,6 +4944,7 @@ class DibujosVulkanImpl final : public DibujosVulkan {
     if (!grabado) {
       stencil_grabado_valido_ = false;
       tipo_indices_grabado_ = VK_INDEX_TYPE_MAX_ENUM;
+      bufer_indices_grabado_ = VK_NULL_HANDLE;
     }
     if (claves[4]) {
       const uint32_t frente = stencil_frente;  // computed before the recording block
@@ -4839,8 +5072,10 @@ class DibujosVulkanImpl final : public DibujosVulkan {
     // Draws and triangles per render target type (same classification as the GPU time).
     {
       const uint32_t categoria = CategoriaDeDestino(pitch, claves);
-      const uint32_t vertices_dibujo = con_indices ? uint32_t(indices_de_16 ? indices16_.size() : indices_.size())
-                                                   : cuenta;
+      const uint32_t vertices_dibujo =
+          con_indices ? (indices_en_cache ? cuenta
+                                          : uint32_t(indices_de_16 ? indices16_.size() : indices_.size()))
+                      : cuenta;
       ++dibujos_por_categoria_[categoria];
       triangulos_por_categoria_[categoria] += vertices_dibujo / 3;
     }
@@ -4879,16 +5114,20 @@ class DibujosVulkanImpl final : public DibujosVulkan {
       }
     }
     if (con_indices) {
-      // The upload buffer is bound once per index type and each draw uses firstIndex.
+      // The upload buffer is bound once per index type and each draw uses firstIndex; the index cache's
+      // buffer likewise (fh2_nativo_cache_indices), so the buffer is tracked too.
       const VkIndexType tipo_indices = indices_de_16 ? VK_INDEX_TYPE_UINT16 : VK_INDEX_TYPE_UINT32;
-      if (tipo_indices != tipo_indices_grabado_) {
-        NFSMW_SUB(9, dfn_.vkCmdBindIndexBuffer(cmd, subida_, 0, tipo_indices));
+      VkBuffer bufer_indices = indices_en_cache ? cache_indices_bufer_ : subida_;
+      if (tipo_indices != tipo_indices_grabado_ || bufer_indices != bufer_indices_grabado_) {
+        NFSMW_SUB(9, dfn_.vkCmdBindIndexBuffer(cmd, bufer_indices, 0, tipo_indices));
         tipo_indices_grabado_ = tipo_indices;
+        bufer_indices_grabado_ = bufer_indices;
       }
       // On the base-zero path, vertexOffset also carries where the copy starts (in vertices).
       const int32_t desplazamiento_vertices =
           base_cero ? int32_t(int64_t(primer_vertice) - int64_t(vmin)) : -int32_t(vmin);
-      uint32_t cuenta_indices = uint32_t(indices_de_16 ? indices16_.size() : indices_.size());
+      uint32_t cuenta_indices =
+          indices_en_cache ? cuenta : uint32_t(indices_de_16 ? indices16_.size() : indices_.size());
 #if defined(FH2_RECOMP)
       if (fh2_tres_indices_) {
         cuenta_indices = std::min(cuenta_indices, 3u);  // fh2_nativo_omitir_categorias 8192 (FPS test)
@@ -4995,6 +5234,7 @@ class DibujosVulkanImpl final : public DibujosVulkan {
     enlaces_grabados_ = 0;
     stencil_grabado_valido_ = false;
     tipo_indices_grabado_ = VK_INDEX_TYPE_MAX_ENUM;
+    bufer_indices_grabado_ = VK_NULL_HANDLE;
   }
 
   // Adds the time since the mark to the stage and moves the mark to now.
@@ -5291,11 +5531,13 @@ class DibujosVulkanImpl final : public DibujosVulkan {
           "[nativo] C6 set 4: {:.2f} enlaces por dibujo ({} en {} dibujos); cambia solo VS {:.1f} %, solo PS "
           "{:.1f} %, solo compartidas {:.1f} %, VS+PS {:.1f} %, VS+compartidas {:.1f} %, PS+compartidas {:.1f} %, "
           "las tres {:.1f} %, tras bufer, ranura o cielo {:.1f} % | constantes subidas otra vez: VS {} por "
-          "generacion, {} por epoca y {} porque el shader lee mas; PS {}, {} y {}",
+          "generacion, {} por epoca y {} porque el shader lee mas; PS {}, {} y {} | de ellas, ya subidas en el "
+          "envio (fh2_nativo_constantes_por_contenido{}): VS {}, PS {}",
           double(enlaces) / double(set4_dibujos_), enlaces, set4_dibujos_, pct(set4_cambios_[1]),
           pct(set4_cambios_[2]), pct(set4_cambios_[4]), pct(set4_cambios_[3]), pct(set4_cambios_[5]),
           pct(set4_cambios_[6]), pct(set4_cambios_[7]), pct(set4_primeros_), resubidas_vs_[0], resubidas_vs_[1],
-          resubidas_vs_[2], resubidas_ps_[0], resubidas_ps_[1], resubidas_ps_[2]);
+          resubidas_vs_[2], resubidas_ps_[0], resubidas_ps_[1], resubidas_ps_[2],
+          constantes_por_contenido_ ? "" : " APAGADO", constantes_repetidas_[0], constantes_repetidas_[1]);
 #if REX_PLATFORM_SWITCH
       if (NvkSwitchSet4* const nvk = &nvk_switch_set4; nvk != nullptr && nvk->version == 1) {
         const uint64_t cuentas[9] = {__atomic_load_n(&nvk->total.enlaces_diferencia, __ATOMIC_RELAXED),
@@ -5532,8 +5774,10 @@ class DibujosVulkanImpl final : public DibujosVulkan {
    * The C3 guard. With the same render target bytes, the XXH3 must be pase_clave_. Returns the computed
    * one, which is the one that decides for this draw.
    */
-  uint64_t ComprobarClavePase(const uint64_t claves[5], uint64_t n) {
-    const uint64_t calculada = XXH3_64bits(claves, sizeof(uint64_t) * 5);
+  // semilla: the one the key was made with (fh2_nativo_msaa mixes the wanted sample count in; 0 = the plain
+  // XXH3_64bits, as without MSAA). Without it every MSAA session read a false DIFERENCIA and lost the fast key.
+  uint64_t ComprobarClavePase(const uint64_t claves[5], uint64_t n, uint64_t semilla) {
+    const uint64_t calculada = XXH3_64bits_withSeed(claves, sizeof(uint64_t) * 5, semilla);
     if (calculada != pase_clave_) {
       clave_pase_rapida_apagada_ = true;
       clave_pase_rapida_ = false;
@@ -5933,6 +6177,24 @@ class DibujosVulkanImpl final : public DibujosVulkan {
       cache_escrito_min_ = ~VkDeviceSize(0);
       cache_escrito_max_ = 0;
     }
+    if (cache_buscas_escrito_max_ > cache_buscas_escrito_min_) {
+      if (!subida_coherente_) {  // same memory type as the upload buffer
+        rex::ui::vulkan::util::FlushMappedMemoryRange(dispositivo_, cache_buscas_memoria_, subida_tipo_,
+                                                      cache_buscas_escrito_min_, cache_buscas_tamano_real_,
+                                                      cache_buscas_escrito_max_ - cache_buscas_escrito_min_);
+      }
+      cache_buscas_escrito_min_ = ~VkDeviceSize(0);
+      cache_buscas_escrito_max_ = 0;
+    }
+    if (cache_indices_escrito_max_ > cache_indices_escrito_min_) {
+      if (!subida_coherente_) {  // same memory type as the upload buffer
+        rex::ui::vulkan::util::FlushMappedMemoryRange(dispositivo_, cache_indices_memoria_, subida_tipo_,
+                                                      cache_indices_escrito_min_, cache_indices_tamano_real_,
+                                                      cache_indices_escrito_max_ - cache_indices_escrito_min_);
+      }
+      cache_indices_escrito_min_ = ~VkDeviceSize(0);
+      cache_indices_escrito_max_ = 0;
+    }
     if (compartidas_aparte_ && compartidas_usado_ && !compartidas_coherente_) {
       rex::ui::vulkan::util::FlushMappedMemoryRange(dispositivo_, compartidas_memoria_, compartidas_tipo_, 0,
                                                     compartidas_tamano_real_, compartidas_usado_);
@@ -5984,6 +6246,14 @@ class DibujosVulkanImpl final : public DibujosVulkan {
     // The vertex cache numbers this submission and learns what the GPU has finished (this slot's fence was waited).
     if (cache_activo_) {
       cache_vertices_.NuevaRanura(ranura);
+    }
+    // Same for the index cache (fh2_nativo_cache_indices) and the fetch cache (fh2_nativo_cache_buscas).
+    if (cache_indices_activo_) {
+      cache_indices_.NuevaRanura(ranura);
+    }
+    if (cache_buscas_activo_) {
+      cache_buscas_.NuevaRanura(ranura);
+      buscas_transitoria_usado_ = 0;
     }
     enviado_tras_sombras_ = false;  // the post-shadow submission is once per frame
     /*
@@ -8595,12 +8865,23 @@ class DibujosVulkanImpl final : public DibujosVulkan {
 #if defined(FH2_RECOMP)
     // fh2_nativo_msaa: totals since the start.
     if (msaa_pases_ || msaa_fallos_) {
-      NFSMW_INFORME_ANILLO("[fh2 nativo] MSAA: {} pases multimuestra ({} sin borrado, {:.1f} MB sembrados), "
-                           "{} fallos (1x para la sesion)",
-                           msaa_pases_, msaa_sin_borrado_, double(msaa_semilla_bytes_) / 1048576.0,
-                           msaa_fallos_);
+      NFSMW_INFORME_ANILLO("[fh2 nativo] MSAA: {} pases multimuestra ({} de ellos cargan lo anterior), {} a 1x por "
+                           "cargar lo anterior sin muestras guardadas, {} fallos (1x para la sesion)",
+                           msaa_pases_, msaa_continuados_, msaa_sin_borrado_, msaa_fallos_);
     }
 #endif
+
+    // fh2_nativo_cache_indices: totals since the start.
+    if (cache_indices_activo_) {
+      const CacheIndicesEntreFotogramas& ci = cache_indices_;
+      NFSMW_INFORME_ANILLO(
+          "[fh2 nativo] cache de indices: {} consultas, {} aciertos ({:.1f} MB sin copiar), {} copias ({:.1f} MB), "
+          "{} sucias, {} volatiles, {} entradas, {} segmentos reciclados, {} veces lleno, {} avisos de escritura, "
+          "{} discrepancias, {} copias pisadas{}",
+          ci.consultas(), ci.aciertos(), double(ci.bytes_ahorrados()) / 1048576.0, ci.copias(),
+          double(ci.bytes_copiados()) / 1048576.0, ci.sucias(), ci.volatiles(), ci.entradas(), ci.reciclados(),
+          ci.llenos(), ci.avisos(), ci.discrepancias(), ci.pisadas(), cache_indices_comprobar_ ? " (comprobando)" : "");
+    }
 
     copias_inf_ = InformeCopiasCifras{};
   }
@@ -8992,7 +9273,36 @@ class DibujosVulkanImpl final : public DibujosVulkan {
 
   // One upload buffer per work slot of the render target code: the previous frame's may still be in use
   // on the GPU while the other is filled.
+  // fh2_nativo_constantes_por_contenido: true if a block equal to these 'bytes' was uploaded in this submission; then
+  // 'offset' is its place. On false the caller uploads it and calls AnotarBloqueConstantes.
+  bool BloqueConstantesRepetido(uint32_t tipo, const uint32_t* datos, uint32_t bytes, VkDeviceSize& offset) {
+    if (!constantes_por_contenido_ || bytes == 0) {
+      return false;
+    }
+    huella_bloque_ = XXH3_64bits(datos, bytes);
+    const BloqueConstantes& e = bloques_constantes_[tipo * kBloquesConstantes + (huella_bloque_ & (kBloquesConstantes - 1))];
+    if (e.epoca != epoca_subida_ || e.huella != huella_bloque_ || e.bytes != bytes) {
+      return false;
+    }
+    offset = e.offset;
+    ++constantes_repetidas_[tipo];
+    return true;
+  }
+
+  void AnotarBloqueConstantes(uint32_t tipo, uint32_t bytes, VkDeviceSize offset) {
+    if (!constantes_por_contenido_ || bytes == 0) {
+      return;
+    }
+    bloques_constantes_[tipo * kBloquesConstantes + (huella_bloque_ & (kBloquesConstantes - 1))] =
+        BloqueConstantes{huella_bloque_, epoca_subida_, offset, bytes};
+  }
+
   bool CrearSubida() {
+    constantes_por_contenido_ = REXCVAR_GET(fh2_nativo_constantes_por_contenido);
+    // Same reading as CrearPase's dependencies (kInitOnly), and only with GPU synchronization on: without it the
+    // passes declare no dependencies and nothing waits anyway.
+    vertices_sin_espera_ =
+        REXCVAR_GET(fh2_nativo_vertices_sin_espera) && REXCVAR_GET(nfsmw_nativo_sincronizacion_gpu);
     for (BuferSubida& s : subidas_) {
       const bool creado = CrearBuferSubida();
       s = {subida_, subida_memoria_, subida_tamano_real_, subida_datos_, subida_direccion_};
@@ -9012,6 +9322,10 @@ class DibujosVulkanImpl final : public DibujosVulkan {
     CrearCompartidasAparte();
 
     CrearCacheVertices();
+    CrearCacheIndices();
+#if defined(FH2_RECOMP)
+    CrearCacheBuscas();  // before CrearDescriptores, which points binding 3 at it
+#endif
 
     UsarRanura(0);
     return true;
@@ -9089,6 +9403,82 @@ class DibujosVulkanImpl final : public DibujosVulkan {
     if (cache_memoria_ != VK_NULL_HANDLE) {
       dfn_.vkFreeMemory(device_, cache_memoria_, nullptr);
       cache_memoria_ = VK_NULL_HANDLE;
+    }
+  }
+
+  // fh2_nativo_cache_indices: its own buffer of the upload buffer's memory type, mapped for good, and the write
+  // watch's callback. A buffer of its own rather than sharing the vertex cache's: index copies are small and
+  // frequent, and mixing them would evict vertex copies. If anything fails the cache stays off and nothing else
+  // changes.
+  void CrearCacheIndices() {
+    if (!REXCVAR_GET(fh2_nativo_cache_indices)) {
+      return;
+    }
+    // 32 MB on phones with 8 GB of RAM or more, 16 MB on the others (the Moto G9 Play has 4 GB): index traffic
+    // is about a tenth of the vertex one.
+#if defined(__linux__)
+    const uint64_t ram = uint64_t(sysconf(_SC_PHYS_PAGES)) * uint64_t(sysconf(_SC_PAGESIZE));
+#else
+    const uint64_t ram = 0;
+#endif
+    cache_indices_.Configurar(ram >= (uint64_t(7) << 30) ? 8 : 4);
+    VkBufferCreateInfo info{};
+    info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+    info.size = cache_indices_.Tamano();
+    info.usage = VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
+    info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    bool bien = memoria_ != nullptr &&
+                dfn_.vkCreateBuffer(device_, &info, nullptr, &cache_indices_bufer_) == VK_SUCCESS;
+    if (bien) {
+      VkMemoryRequirements requisitos{};
+      dfn_.vkGetBufferMemoryRequirements(device_, cache_indices_bufer_, &requisitos);
+      VkMemoryAllocateInfo reserva{};
+      reserva.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+      reserva.allocationSize = requisitos.size;
+      reserva.memoryTypeIndex = subida_tipo_;
+      cache_indices_tamano_real_ = requisitos.size;
+      bien = ((requisitos.memoryTypeBits >> subida_tipo_) & 1) &&
+             dfn_.vkAllocateMemory(device_, &reserva, nullptr, &cache_indices_memoria_) == VK_SUCCESS &&
+             dfn_.vkBindBufferMemory(device_, cache_indices_bufer_, cache_indices_memoria_, 0) == VK_SUCCESS &&
+             dfn_.vkMapMemory(device_, cache_indices_memoria_, 0, VK_WHOLE_SIZE, 0,
+                              reinterpret_cast<void**>(&cache_indices_datos_)) == VK_SUCCESS;
+    }
+    if (bien) {
+      cache_indices_vigilancia_ = memoria_->RegisterPhysicalMemoryInvalidationCallback(
+          &CacheIndicesEntreFotogramas::EscrituraVigilada, &cache_indices_);
+      bien = cache_indices_vigilancia_ != nullptr;
+    }
+    if (!bien) {
+      DestruirCacheIndices();
+      REXLOG_ERROR("[fh2 nativo] cache de indices: no se pudo crear su bufer de {} MB; queda apagada",
+                   cache_indices_.Tamano() >> 20);
+      return;
+    }
+    cache_indices_activo_ = true;
+    cache_indices_comprobar_ = REXCVAR_GET(fh2_nativo_cache_indices_comprobar);
+    REXLOG_INFO("[fh2 nativo] cache de indices: ENCENDIDA, {} MB en el tipo de memoria {} ({}){}",
+                cache_indices_.Tamano() >> 20, subida_tipo_,
+                subida_coherente_ ? "coherente" : "se publica antes de enviar",
+                cache_indices_comprobar_ ? "; comprobando cada acierto con XXH3" : "");
+  }
+
+  void DestruirCacheIndices() {
+    cache_indices_activo_ = false;
+    if (cache_indices_vigilancia_ && memoria_) {
+      memoria_->UnregisterPhysicalMemoryInvalidationCallback(cache_indices_vigilancia_);
+      cache_indices_vigilancia_ = nullptr;
+    }
+    if (cache_indices_datos_) {
+      dfn_.vkUnmapMemory(device_, cache_indices_memoria_);
+      cache_indices_datos_ = nullptr;
+    }
+    if (cache_indices_bufer_ != VK_NULL_HANDLE) {
+      dfn_.vkDestroyBuffer(device_, cache_indices_bufer_, nullptr);
+      cache_indices_bufer_ = VK_NULL_HANDLE;
+    }
+    if (cache_indices_memoria_ != VK_NULL_HANDLE) {
+      dfn_.vkFreeMemory(device_, cache_indices_memoria_, nullptr);
+      cache_indices_memoria_ = VK_NULL_HANDLE;
     }
   }
 
@@ -9288,6 +9678,7 @@ class DibujosVulkanImpl final : public DibujosVulkan {
         return false;
       }
       cuatro_conjuntos_ = fisicas.limits.maxBoundDescriptorSets < 5 || REXCVAR_GET(nfsmw_nativo_cuatro_conjuntos);
+      sesgo_lod_maximo_ = fisicas.limits.maxSamplerLodBias;
       if (cuatro_conjuntos_) {
         REXLOG_INFO("[compatibilidad] {} conjuntos de descriptores{}: el monton de cubos va en el conjunto del "
                     "3D y samplers y UBO bajan uno", fisicas.limits.maxBoundDescriptorSets,
@@ -9460,7 +9851,9 @@ class DibujosVulkanImpl final : public DibujosVulkan {
       }
       dfn_.vkUpdateDescriptorSets(device_, 3, escrituras_ubo.data(), 0, nullptr);
 #if defined(FH2_RECOMP)
-      const VkDescriptorBufferInfo buscas{subidas_[ranura].bufer, 0, VK_WHOLE_SIZE};
+      // fh2_nativo_cache_buscas: every slot reads its fetches from the persistent buffer.
+      const VkDescriptorBufferInfo buscas{cache_buscas_activo_ ? cache_buscas_bufer_ : subidas_[ranura].bufer, 0,
+                                          VK_WHOLE_SIZE};
       VkWriteDescriptorSet escritura_buscas{};
       escritura_buscas.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
       escritura_buscas.dstSet = sets_ubo_[ranura];
@@ -10146,21 +10539,49 @@ class DibujosVulkanImpl final : public DibujosVulkan {
 #endif
       }
       const VkFormat formato_cubo = resueltas ? caras[0]->formato : VK_FORMAT_R8G8B8A8_UNORM;
+      /*
+       * Its mips. After the six faces the game halves each face down to 1x1 (one draw and one resolve per level
+       * and face) into the fetch's mip region, and the car paint samples the cube with the computed LOD: on the
+       * body's curves and far away that lands on the blurred levels, which the base level alone replaced with
+       * the sharp faces. Levels are taken from 1 up while all six faces of a level are resolved like the base;
+       * the packed tail is left out.
+       */
+      uint32_t niveles_cubo = 1;
+      std::array<std::array<const ImagenNativa*, 6>, 16> mips_cubo{};
+      if (resueltas && REXCVAR_GET(fh2_nativo_mips_cubo)) {
+        for (uint32_t s = 1; s <= nivel_max && s < nivel_empaquetado && s < 16; ++s) {
+          const uint32_t lado_x = std::max(ancho >> s, 1u);
+          const uint32_t lado_y = std::max(alto >> s, 1u);
+          bool nivel = true;
+          for (uint32_t c = 0; c < 6 && nivel; ++c) {
+            const ImagenNativa* m = contexto_->TexturaResuelta(
+                uint32_t((dir_mips + regiones[s].desplazamiento + c * regiones[s].zancada) & 0x1FFFFFFF));
+            nivel = m && m->formato == formato_cubo && m->intercambio_rb == caras[0]->intercambio_rb &&
+                    m->ancho >= lado_x && m->alto >= lado_y;
+            mips_cubo[s][c] = m;
+          }
+          if (!nivel) {
+            break;
+          }
+          niveles_cubo = s + 1;
+        }
+      }
       if (resueltas) {
-        const uint64_t clave_resuelto = clave ^ 0x9E3779B97F4A7C15ull;
+        // A chain that shows up later (or shrinks) gets its own image instead of resizing this one.
+        const uint64_t clave_resuelto = clave ^ 0x9E3779B97F4A7C15ull ^ (uint64_t(niveles_cubo) << 56);
         Textura& textura = texturas_[clave_resuelto];
         if (textura.imagen.imagen == VK_NULL_HANDLE) {
-          if (!CrearTextura(textura.imagen, formato_cubo, ancho, alto, capas)) {
+          if (!CrearTextura(textura.imagen, formato_cubo, ancho, alto, capas, 0, niveles_cubo)) {
             texturas_.erase(clave_resuelto);
             Avisar(32, "no se pudo crear una textura");
             return;
           }
           textura.capas = capas;
-          textura.bytes = uint64_t(ancho) * alto * 4 * capas;
+          textura.bytes = uint64_t(ancho) * alto * 4 * capas * (niveles_cubo > 1 ? 4 : 3) / 3;
           bytes_texturas_ += textura.bytes;
-          REXLOG_INFO("[nativo] C3: cubo {:08X} {}x{} con sus caras resueltas por C2 (fetch {:08X} "
+          REXLOG_INFO("[nativo] C3: cubo {:08X} {}x{} con sus caras resueltas por C2, {} niveles (fetch {:08X} "
                       "{:08X} {:08X} {:08X} {:08X} {:08X})",
-                      base, ancho, alto, f[0], f[1], f[2], f[3], f[4], f[5]);
+                      base, ancho, alto, niveles_cubo, f[0], f[1], f[2], f[3], f[4], f[5]);
         }
         if (textura.fotograma != fotograma_) {
           const VkCommandBuffer subida = contexto_->ComandosSubida();
@@ -10179,6 +10600,16 @@ class DibujosVulkanImpl final : public DibujosVulkan {
             copia.extent = {ancho, alto, 1};
             copiar_imagen_(subida, caras[c]->imagen, VK_IMAGE_LAYOUT_GENERAL, textura.imagen.imagen,
                            VK_IMAGE_LAYOUT_GENERAL, 1, &copia);
+          }
+          for (uint32_t s = 1; s < niveles_cubo; ++s) {
+            for (uint32_t c = 0; c < 6; ++c) {
+              VkImageCopy copia{};
+              copia.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+              copia.dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, s, c, 1};
+              copia.extent = {std::max(ancho >> s, 1u), std::max(alto >> s, 1u), 1};
+              copiar_imagen_(subida, mips_cubo[s][c]->imagen, VK_IMAGE_LAYOUT_GENERAL, textura.imagen.imagen,
+                             VK_IMAGE_LAYOUT_GENERAL, 1, &copia);
+            }
           }
           // Rear-view mirror diagnostic: how many times the faces are copied to the cubemap per submission.
           ++cubos_refrescados_;
@@ -11403,8 +11834,8 @@ class DibujosVulkanImpl final : public DibujosVulkan {
 
   // point: no filtering (depth textures).
   uint32_t RanuraSampler(const uint32_t* f, bool puntual = false) {
-    // Diagnostic: filters the game requests that this renderer does not apply (anisotropy, mip bias and
-    // maximum mip level; the bias is not even part of the key). Each new value is logged once.
+    // Diagnostic: the filters the game requests (anisotropy, mip bias and maximum mip level; the anisotropy is
+    // not applied, see nfsmw_nativo_anisotropico). Each new value is logged once.
     {
       const uint32_t aniso = (f[3] >> 25) & 0x7;
       const int32_t sesgo = int32_t(f[4] << 10) >> 22;  // lod_bias: 10 bits con signo, 5 fraccionarios
@@ -11450,9 +11881,15 @@ class DibujosVulkanImpl final : public DibujosVulkan {
         campo_mips = (campo_mips & 0xF0) | std::min(maximo, minimo + diag_mip_minimo_);
       }
     }
-    const uint32_t clave = ((f[0] >> 10) & 0x1FF) | (campo_filtros << 9) |
-                           (campo_mips << 21) | ((f[5] & 0x3) << 29) |
-                           (puntual ? 0x80000000u : 0u);
+    /*
+     * fh2_nativo_sesgo_mip: the fetch constant's mip bias (word 4 bits 12-21, signed, in 1/32), as the emulated
+     * renderer's sampler applies it. FH2 asks for -0.375 to -3 on textures it wants sharp (foliage among them):
+     * without it they were drawn one to three levels blurrier.
+     */
+    const int32_t sesgo_mip = REXCVAR_GET(fh2_nativo_sesgo_mip) && !puntual ? int32_t(f[4] << 10) >> 22 : 0;
+    const uint64_t clave = uint64_t(((f[0] >> 10) & 0x1FF) | (campo_filtros << 9) | (campo_mips << 21) |
+                                    ((f[5] & 0x3) << 29) | (puntual ? 0x80000000u : 0u)) |
+                           (uint64_t(uint32_t(sesgo_mip) & 0x3FF) << 32);
     if (const auto it = samplers_.find(clave); it != samplers_.end()) {
       return it->second.second;
     }
@@ -11484,6 +11921,7 @@ class DibujosVulkanImpl final : public DibujosVulkan {
     // With real mips, the fetch constant's maximum level also limits (like the emulation's sampler);
     // single-level textures stay as before.
     info.maxLod = mip == 2 ? info.minLod + 0.25f : std::max(info.minLod, float((f[4] >> 6) & 0xF));
+    info.mipLodBias = std::clamp(float(sesgo_mip) / 32.0f, -sesgo_lod_maximo_, sesgo_lod_maximo_);
     info.borderColor = (f[5] & 0x3) == 1 ? VK_BORDER_COLOR_FLOAT_OPAQUE_WHITE
                                          : VK_BORDER_COLOR_FLOAT_TRANSPARENT_BLACK;
     // nfsmw_nativo_anisotropico. Only linear samplers with mips (maxLod above minLod); the value is read at
@@ -11659,6 +12097,51 @@ class DibujosVulkanImpl final : public DibujosVulkan {
     return maximo;
   }
 
+  // fh2_nativo_msaa: a multisample image in lazily allocated memory when the device has it (tilers: the image
+  // stays in tile memory and takes no RAM), else in ordinary device memory (desktop GPUs).
+  bool CrearImagenMsTransitoria(const VkImageCreateInfo& info, VkImage& imagen, VkDeviceMemory& memoria) {
+    if (msaa_tipo_perezoso_ == UINT32_MAX - 1) {
+      // Bits of the memory types with LAZILY_ALLOCATED, read once (0 = none).
+      msaa_tipo_perezoso_ = 0;
+      if (const auto* instancia = dispositivo_->vulkan_instance()) {
+        VkPhysicalDeviceMemoryProperties mp{};
+        instancia->functions().vkGetPhysicalDeviceMemoryProperties(dispositivo_->physical_device(), &mp);
+        for (uint32_t t = 0; t < mp.memoryTypeCount; ++t) {
+          if (mp.memoryTypes[t].propertyFlags & VK_MEMORY_PROPERTY_LAZILY_ALLOCATED_BIT) {
+            msaa_tipo_perezoso_ |= 1u << t;
+          }
+        }
+      }
+      REXLOG_INFO("[fh2 nativo] MSAA: imagenes multimuestra {}",
+                  msaa_tipo_perezoso_ ? "transitorias en memoria perezosa (sin RAM en un tiler)"
+                                      : "en memoria normal (el dispositivo no tiene memoria perezosa)");
+    }
+    if (msaa_tipo_perezoso_) {
+      if (dfn_.vkCreateImage(device_, &info, nullptr, &imagen) == VK_SUCCESS) {
+        VkMemoryRequirements req{};
+        dfn_.vkGetImageMemoryRequirements(device_, imagen, &req);
+        const uint32_t tipos = req.memoryTypeBits & msaa_tipo_perezoso_;
+        if (tipos) {
+          VkMemoryAllocateInfo asignar{};
+          asignar.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+          asignar.allocationSize = req.size;
+          asignar.memoryTypeIndex = uint32_t(__builtin_ctz(tipos));
+          if (dfn_.vkAllocateMemory(device_, &asignar, nullptr, &memoria) == VK_SUCCESS) {
+            if (dfn_.vkBindImageMemory(device_, imagen, memoria, 0) == VK_SUCCESS) {
+              return true;
+            }
+            dfn_.vkFreeMemory(device_, memoria, nullptr);
+          }
+        }
+        dfn_.vkDestroyImage(device_, imagen, nullptr);
+      }
+      imagen = VK_NULL_HANDLE;
+      memoria = VK_NULL_HANDLE;
+    }
+    return rex::ui::vulkan::util::CreateDedicatedAllocationImage(
+        dispositivo_, info, rex::ui::vulkan::util::MemoryPurpose::kDeviceLocal, imagen, memoria);
+  }
+
   // Ensures every present attachment has a multisample image of the same size and format (created lazily).
   // False latches MSAA off for the session; the pass then opens 1x.
   bool PrepararMs(const std::array<ImagenNativa*, 5>& imagenes, uint32_t muestras) {
@@ -11684,14 +12167,21 @@ class DibujosVulkanImpl final : public DibujosVulkan {
       info.arrayLayers = 1;
       info.samples = conteo;
       info.tiling = VK_IMAGE_TILING_OPTIMAL;
+      // Transient: the multisample images only live inside a pass that clears them (EmpezarPase) and store
+      // nothing (storeOp DONT_CARE), so a tiler keeps them in its tile memory and never backs them with RAM.
+      // Persistent (fh2_nativo_msaa_persistente): they keep the target's samples between passes in real memory,
+      // and ContextoDestinos clears them with the target (TRANSFER_DST).
+      const bool persistente = REXCVAR_GET(fh2_nativo_msaa_persistente);
       info.usage = (profundidad ? VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT
                                 : VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT) |
-                   VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+                   (persistente ? VK_IMAGE_USAGE_TRANSFER_DST_BIT : VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT);
       info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
       info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-      bool bien = rex::ui::vulkan::util::CreateDedicatedAllocationImage(
-          dispositivo_, info, rex::ui::vulkan::util::MemoryPurpose::kDeviceLocal, img->ms_imagen,
-          img->ms_memoria);
+      img->ms_valida = false;
+      bool bien = persistente ? rex::ui::vulkan::util::CreateDedicatedAllocationImage(
+                                    dispositivo_, info, rex::ui::vulkan::util::MemoryPurpose::kDeviceLocal,
+                                    img->ms_imagen, img->ms_memoria)
+                              : CrearImagenMsTransitoria(info, img->ms_imagen, img->ms_memoria);
       if (bien) {
         VkImageAspectFlags aspecto = VK_IMAGE_ASPECT_COLOR_BIT;
         if (profundidad) {
@@ -11722,7 +12212,8 @@ class DibujosVulkanImpl final : public DibujosVulkan {
         return false;
       }
       img->ms_muestras = muestras;
-      // UNDEFINED -> GENERAL, once: the attachments use GENERAL throughout, like the 1x ones.
+      // UNDEFINED -> GENERAL, once, before the pass that draws into it: the attachments use GENERAL throughout,
+      // like the 1x ones.
       const VkCommandBuffer cmd = contexto_->ComandosTrabajo();
       if (cmd) {
         VkImageAspectFlags aspecto = VK_IMAGE_ASPECT_COLOR_BIT;
@@ -11745,8 +12236,14 @@ class DibujosVulkanImpl final : public DibujosVulkan {
         barrera.subresourceRange.levelCount = 1;
         barrera.subresourceRange.baseArrayLayer = 0;
         barrera.subresourceRange.layerCount = 1;
-        barrera.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-        dfn_.vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
+        barrera.dstAccessMask = profundidad ? (VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT |
+                                               VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT)
+                                            : (VK_ACCESS_COLOR_ATTACHMENT_READ_BIT |
+                                               VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT);
+        dfn_.vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+                                  profundidad ? (VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT |
+                                                 VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT)
+                                              : VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
                                   0, 0, nullptr, 0, nullptr, 1, &barrera);
       }
     }
@@ -11768,6 +12265,7 @@ class DibujosVulkanImpl final : public DibujosVulkan {
       img.ms_memoria = VK_NULL_HANDLE;
     }
     img.ms_muestras = 0;
+    img.ms_valida = false;
   }
 #endif
 
@@ -11860,25 +12358,54 @@ class DibujosVulkanImpl final : public DibujosVulkan {
     const uint32_t modo_base = sombras_sin_load ? kCargaIgnorar : kCargaLeer;
 #if defined(FH2_RECOMP)
     // fh2_nativo_msaa: draw into transient multisample images, resolved in-subpass to the images above.
-    // The identity already covers the want; anything that fails latches MSAA off and the pass opens 1x.
+    // Only passes that start from nothing (every attachment cleared, or nothing loaded): a pass that loads
+    // the previous content opens 1x and reads the resolved image, which is valid. Copying the 1x image into a
+    // multisample one would be invalid Vulkan (vkCmdCopyImage needs equal sample counts), and the multisample
+    // images keep nothing between passes (storeOp DONT_CARE). Anything that fails latches MSAA off.
+    muestras_pedidas_pase_ = muestras_max;
     uint32_t muestras = 0;
     std::array<VkImageView, 5> vistas_ms{};
-    bool semilla_ms[5] = {};
-    if (muestras_max >= 2 && PrepararMs(imagenes, muestras_max)) {
+    bool todo_borrado = modo_base != kCargaLeer;
+    if (!todo_borrado) {
+      todo_borrado = true;
+      for (uint32_t i = 0; i < 5; ++i) {
+        if (imagenes[i] && !(mascara_borrar & (1u << i))) {
+          todo_borrado = false;
+          break;
+        }
+      }
+    }
+    // fh2_nativo_msaa_persistente: a pass that loads stays multisampled if every attachment it loads has its samples
+    // (ms_valida); the cleared ones start from the clear either way.
+    bool continua_ms = false;
+    if (muestras_max >= 2 && !todo_borrado && REXCVAR_GET(fh2_nativo_msaa_persistente)) {
+      continua_ms = true;
+      for (uint32_t i = 0; i < 5 && continua_ms; ++i) {
+        if (imagenes[i] && !(mascara_borrar & (1u << i))) {
+          continua_ms = imagenes[i]->ms_valida && imagenes[i]->ms_imagen != VK_NULL_HANDLE &&
+                        imagenes[i]->ms_muestras == muestras_max;
+        }
+      }
+    }
+    if (muestras_max >= 2 && !todo_borrado && !continua_ms) {
+      ++msaa_sin_borrado_;
+    } else if (muestras_max >= 2 && PrepararMs(imagenes, muestras_max)) {
+      if (continua_ms) {
+        ++msaa_continuados_;
+      }
       muestras = muestras_max;
       for (uint32_t i = 0; i < 5; ++i) {
         if (imagenes[i] && imagenes[i]->ms_vista != VK_NULL_HANDLE) {
           vistas_ms[i] = imagenes[i]->ms_vista;
-          // A load that is not a clear reads the previous content: seed the multisample image from the
-          // 1x one (same pixels a 1x pass would have loaded). Clears need nothing.
-          semilla_ms[i] = !(mascara_borrar & (1u << i)) && modo_base == kCargaLeer;
         }
       }
       ++msaa_pases_;
       if (msaa_pases_ == 1) {
-        REXLOG_INFO("[fh2 nativo] MSAA a {}x: los pases que el juego borra se dibujan con {} muestras y se "
-                    "resuelven en el pase",
-                    muestras, muestras);
+        REXLOG_INFO("[fh2 nativo] MSAA a {}x: los pases se dibujan con {} muestras y se resuelven en el pase; {}",
+                    muestras, muestras,
+                    REXCVAR_GET(fh2_nativo_msaa_persistente)
+                        ? "las muestras se guardan entre pases y los que cargan lo anterior siguen en MSAA"
+                        : "solo los que el juego borra (los que cargan lo anterior van a 1x)");
       }
     }
     muestras_pase_ = muestras;
@@ -11892,9 +12419,6 @@ class DibujosVulkanImpl final : public DibujosVulkan {
       muestras = 0;
       muestras_pase_ = 0;
       vistas_ms = {};
-      for (uint32_t i = 0; i < 5; ++i) {
-        semilla_ms[i] = false;
-      }
       pase = PaseDe(formatos, modo_base | (mascara_borrar << 4), 0);
     }
 #else
@@ -11933,67 +12457,6 @@ class DibujosVulkanImpl final : public DibujosVulkan {
     if (!cmd) {
       return false;
     }
-#if defined(FH2_RECOMP)
-    // Seeds the multisample images a LOAD pass reads (see above): full 1x -> transient copies. The pass
-    // entry dependency only covers what previous passes wrote through it, not resolve copies recorded
-    // after the last pass: a barrier first makes every previous color/depth/transfer write visible.
-    if (muestras >= 2 && copiar_imagen_) {
-      bool semilla_alguna = false;
-      for (uint32_t i = 0; i < 5; ++i) {
-        if (semilla_ms[i] && imagenes[i] && imagenes[i]->ms_imagen != VK_NULL_HANDLE) {
-          semilla_alguna = true;
-          break;
-        }
-      }
-      if (semilla_alguna) {
-        ++msaa_sin_borrado_;
-        // Previous color/depth/transfer writes (previous passes, resolve copies) must be visible to the
-        // seed copies below.
-        VkMemoryBarrier barrera{};
-        barrera.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
-        barrera.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_TRANSFER_WRITE_BIT |
-                                VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
-        barrera.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
-        dfn_.vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT |
-                                           VK_PIPELINE_STAGE_TRANSFER_BIT |
-                                           VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT,
-                                  VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 1, &barrera, 0, nullptr, 0,
-                                  nullptr);
-      }
-      for (uint32_t i = 0; i < 5; ++i) {
-        if (!semilla_ms[i] || !imagenes[i] || imagenes[i]->ms_imagen == VK_NULL_HANDLE) {
-          continue;
-        }
-        VkImageCopy copia{};
-        copia.srcSubresource = {i == 4 ? VkImageAspectFlags(VK_IMAGE_ASPECT_DEPTH_BIT |
-                                                            ((imagenes[i]->formato == VK_FORMAT_D24_UNORM_S8_UINT ||
-                                                              imagenes[i]->formato ==
-                                                                  VK_FORMAT_D32_SFLOAT_S8_UINT)
-                                                                 ? VK_IMAGE_ASPECT_STENCIL_BIT
-                                                                 : 0))
-                                         : VkImageAspectFlags(VK_IMAGE_ASPECT_COLOR_BIT),
-                                0, 0, 1};
-        copia.dstSubresource = copia.srcSubresource;
-        copia.extent = {imagenes[i]->ancho, imagenes[i]->alto, 1};
-        copiar_imagen_(cmd, imagenes[i]->imagen, VK_IMAGE_LAYOUT_GENERAL, imagenes[i]->ms_imagen,
-                       VK_IMAGE_LAYOUT_GENERAL, 1, &copia);
-        msaa_semilla_bytes_ += uint64_t(imagenes[i]->ancho) * imagenes[i]->alto * 4;
-      }
-      if (semilla_alguna) {
-        ++msaa_sin_borrado_;
-        VkMemoryBarrier barrera{};
-        barrera.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
-        barrera.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_TRANSFER_WRITE_BIT |
-                                VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
-        barrera.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
-        dfn_.vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT |
-                                           VK_PIPELINE_STAGE_TRANSFER_BIT |
-                                           VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT,
-                                  VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 1, &barrera, 0, nullptr, 0,
-                                  nullptr);
-      }
-    }
-#endif
     VkRenderPassBeginInfo inicio{};
     inicio.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
     inicio.renderPass = pase;
@@ -12042,6 +12505,10 @@ class DibujosVulkanImpl final : public DibujosVulkan {
       if (mascara_borrar & (1u << i)) {
         imagenes[i]->fh2_borrar = false;  // done (ContextoDestinos drops it from its list)
       }
+      // fh2_nativo_msaa_persistente: an MSAA pass stores its samples; a 1x pass leaves them behind its resolved image.
+      if (imagenes[i]) {
+        imagenes[i]->ms_valida = muestras >= 2 && REXCVAR_GET(fh2_nativo_msaa_persistente);
+      }
     }
 #endif
     if (cronometrar_) {
@@ -12086,6 +12553,8 @@ class DibujosVulkanImpl final : public DibujosVulkan {
 #endif
     std::copy(std::begin(formatos), std::end(formatos), std::begin(pase_formatos_));
     pase_rp_ = pase;
+    pase_vs_sincronizado_ = barrera_vs_pendiente_;  // fh2_nativo_vertices_sin_espera (Dibujar)
+    barrera_vs_pendiente_ = false;
     // Phase 0b (nfsmw_nativo_pipeline_entre_pases). Vulkan keeps the bound pipeline across passes of the
     // same buffer: the pass's first draw only binds again if its key differs. A new buffer still starts
     // with nothing bound (Dibujar, grabacion_generacion_).
@@ -12278,6 +12747,9 @@ class DibujosVulkanImpl final : public DibujosVulkan {
         muestras >= 4 ? VK_SAMPLE_COUNT_4_BIT : (muestras >= 2 ? VK_SAMPLE_COUNT_2_BIT
                                                               : VK_SAMPLE_COUNT_1_BIT);
     const bool con_ms = muestras >= 2;
+    // fh2_nativo_msaa_persistente: the samples are stored for the next pass on the target (loadOp LOAD). The flag is
+    // fixed for the session, so it needs no place in the render pass key.
+    const bool ms_guarda = con_ms && REXCVAR_GET(fh2_nativo_msaa_persistente);
 #endif
     std::array<VkAttachmentDescription, 10> adjuntos{};
     std::array<VkAttachmentReference, 4> colores{};
@@ -12308,15 +12780,15 @@ class DibujosVulkanImpl final : public DibujosVulkan {
                                          : VK_ATTACHMENT_LOAD_OP_LOAD;
       a.storeOp =
 #if defined(FH2_RECOMP)
-          con_ms ? VK_ATTACHMENT_STORE_OP_DONT_CARE :
+          con_ms && !ms_guarda ? VK_ATTACHMENT_STORE_OP_DONT_CARE :
 #endif
-                   VK_ATTACHMENT_STORE_OP_STORE;
+                               VK_ATTACHMENT_STORE_OP_STORE;
       a.stencilLoadOp = i != 4                 ? VK_ATTACHMENT_LOAD_OP_DONT_CARE
                         : modo == kCargaBorrar ? VK_ATTACHMENT_LOAD_OP_CLEAR
                                                : VK_ATTACHMENT_LOAD_OP_LOAD;
       a.stencilStoreOp = i == 4 ? VK_ATTACHMENT_STORE_OP_STORE : VK_ATTACHMENT_STORE_OP_DONT_CARE;
 #if defined(FH2_RECOMP)
-      if (con_ms && i == 4) {
+      if (con_ms && !ms_guarda && i == 4) {
         a.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;  // only the resolve is read
       }
 #endif
@@ -12333,9 +12805,11 @@ class DibujosVulkanImpl final : public DibujosVulkan {
       ++n;
     }
 #if defined(FH2_RECOMP)
-    // The resolve attachments (the usual images), after the multisample ones.
+    // The resolve attachments (the usual images), after the multisample ones. Only with samples: a 1x pass
+    // with them declares attachments its framebuffer does not have (Turnip's autotune read past the
+    // framebuffer's views and crashed on the Moto right after the intro video).
     uint32_t n_colores_resueltos = 0;
-    for (uint32_t k = 0; k < n_colores; ++k) {
+    for (uint32_t k = 0; con_ms && k < n_colores; ++k) {
       VkAttachmentDescription& r = adjuntos[n];
       r.format = adjuntos[colores[k].attachment].format;
       r.samples = VK_SAMPLE_COUNT_1_BIT;
@@ -12411,7 +12885,7 @@ class DibujosVulkanImpl final : public DibujosVulkan {
       std::array<VkSubpassDependency2, 2> dependencias2{};
       {
         VkSubpassDependency base[2]{};
-        DependenciasImagenes(base);
+        DependenciasImagenes(base, !REXCVAR_GET(fh2_nativo_vertices_sin_espera));
         for (uint32_t k = 0; k < 2; ++k) {
           dependencias2[k].sType = VK_STRUCTURE_TYPE_SUBPASS_DEPENDENCY_2;
           dependencias2[k].srcSubpass = base[k].srcSubpass;
@@ -12452,7 +12926,7 @@ class DibujosVulkanImpl final : public DibujosVulkan {
     info.pSubpasses = &subpase;
     VkSubpassDependency dependencias[2]{};
     if (REXCVAR_GET(nfsmw_nativo_sincronizacion_gpu)) {
-      DependenciasImagenes(dependencias);
+      DependenciasImagenes(dependencias, !REXCVAR_GET(fh2_nativo_vertices_sin_espera));
       info.dependencyCount = 2;
       info.pDependencies = dependencias;
     }
@@ -12849,6 +13323,7 @@ class DibujosVulkanImpl final : public DibujosVulkan {
     muestreo.rasterizationSamples =
         clave.muestras >= 4 ? VK_SAMPLE_COUNT_4_BIT : (clave.muestras >= 2 ? VK_SAMPLE_COUNT_2_BIT
                                                                            : VK_SAMPLE_COUNT_1_BIT);
+    muestreo.alphaToCoverageEnable = clave.muestras >= 2 && (clave.muestras_reserva & 1u) ? VK_TRUE : VK_FALSE;
 #else
     muestreo.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
 #endif
@@ -13194,6 +13669,27 @@ class DibujosVulkanImpl final : public DibujosVulkan {
   }
 
   // Every 20 s, phase 0b (nfsmw_nativo_pipeline_entre_pases).
+  // fh2_nativo_vertices_sin_espera: every earlier write (attachments, copies, compute) visible to the vertex shaders of
+  // what follows. Recorded outside a pass; the pass that opens next is marked as covered.
+  void BarreraVertices() {
+    const VkCommandBuffer cmd = contexto_->ComandosTrabajo();
+    if (!cmd) {
+      return;
+    }
+    VkMemoryBarrier barrera{};
+    barrera.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
+    barrera.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT |
+                            VK_ACCESS_TRANSFER_WRITE_BIT | VK_ACCESS_SHADER_WRITE_BIT;
+    barrera.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+    dfn_.vkCmdPipelineBarrier(cmd,
+                              VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT |
+                                  VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT |
+                                  VK_PIPELINE_STAGE_TRANSFER_BIT | VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                              VK_PIPELINE_STAGE_VERTEX_SHADER_BIT, 0, 1, &barrera, 0, nullptr, 0, nullptr);
+    barrera_vs_pendiente_ = true;
+    ++vs_barreras_;
+  }
+
   void InformePipelineEntrePases() {
     const auto ahora = std::chrono::steady_clock::now();
     if (ahora - entre_pases_informe_ < std::chrono::seconds(20)) {
@@ -13212,6 +13708,12 @@ class DibujosVulkanImpl final : public DibujosVulkan {
                          "pipeline enlazado que se conserva (su primer dibujo no vuelve a enlazar si la clave es la "
                          "misma)",
                          pipeline_entre_pases_ ? "se conserva" : "se olvida, como antes", pases, conservados);
+    NFSMW_INFORME_ANILLO("[nativo] C6 vertices sin espera entre pases (fh2_nativo_vertices_sin_espera): {}; en 20 s, {} "
+                         "barreras para vertex shaders que muestrean y {} pases reabiertos por ellas",
+                         vertices_sin_espera_ ? "encendido" : "apagado, los vertices esperan como antes",
+                         vs_barreras_ - vs_barreras_previas_, vs_pases_reabiertos_ - vs_reabiertos_previos_);
+    vs_barreras_previas_ = vs_barreras_;
+    vs_reabiertos_previos_ = vs_pases_reabiertos_;
   }
 
   /*
@@ -14016,6 +14518,11 @@ class DibujosVulkanImpl final : public DibujosVulkan {
     precalentado_decidido_ = true;
     biblioteca_precalentado_ = biblioteca;
     precalentado_eds_ = eds_modo_;  // the ring would not request those of another dynamic state mode
+#if defined(FH2_RECOMP)
+    // fh2_nativo_msaa: the sample count the ring draws with this session, decided here (it also loads
+    // vkCreateRenderPass2) before the thread exists, so the thread only reads finished values.
+    precalentado_muestras_ = MuestrasMsaaMax();
+#endif
     precalentado_inicio_ = std::chrono::steady_clock::now();
     try {
       precalentado_hilo_ = std::thread([this] { BuclePrecalentado(); });
@@ -14124,17 +14631,34 @@ class DibujosVulkanImpl final : public DibujosVulkan {
           (r.clave.ps && (!ps || ps->vertices || !ps->shader || ps->shader->huella != r.huella_ps))) {
         estado = kListaSinShader;
         ++sin_shader;
-      } else if (r.clave.relleno2 != precalentado_eds_) {
+      } else if (r.clave.relleno2 != precalentado_eds_
+#if defined(FH2_RECOMP)
+                 // fh2_nativo_msaa: saved with another sample count (MSAA changed or unavailable): the ring would
+                 // never ask for it, and it needs a render pass with that count.
+                 || (r.clave.muestras != 0 && r.clave.muestras != precalentado_muestras_)
+#endif
+      ) {
         estado = kListaOtroModo;
         ++otro_modo;
       } else {
         const VkShaderModule modulo_vs = normal(*vs);
         const VkShaderModule modulo_ps = r.clave.ps ? pixel(r.clave, *ps) : VK_NULL_HANDLE;
+#if defined(FH2_RECOMP)
+        // fh2_nativo_msaa: a pipeline is only compatible with a render pass of its own sample count (and, with
+        // samples, its resolve attachments): one pass per formats and count.
+        const uint64_t clave_pase =
+            XXH3_64bits_withSeed(r.clave.formatos, sizeof(r.clave.formatos), r.clave.muestras);
+        auto it_pase = pases.find(clave_pase);
+        if (it_pase == pases.end()) {
+          it_pase = pases.emplace(clave_pase, CrearPase(r.clave.formatos, kCargaLeer, r.clave.muestras)).first;
+        }
+#else
         const uint64_t clave_pase = XXH3_64bits(r.clave.formatos, sizeof(r.clave.formatos));
         auto it_pase = pases.find(clave_pase);
         if (it_pase == pases.end()) {
           it_pase = pases.emplace(clave_pase, CrearPase(r.clave.formatos, kCargaLeer)).first;
         }
+#endif
         EntradaVertices entrada;
         for (uint32_t k = 0; k < r.n_atributos; ++k) {
           const AtributoRegistro& a = r.atributos[k];
@@ -14190,7 +14714,7 @@ class DibujosVulkanImpl final : public DibujosVulkan {
         std::chrono::duration<double>(std::chrono::steady_clock::now() - precalentado_inicio_).count();
     REXLOG_INFO("[nativo] C6 precalentado (build 186): {} en {:.1f} s, prioridad {:#x}: {} de {} pipelines "
                 "precalentados, {} compilados de verdad ({:.0f} ms, {:.1f} ms cada uno; el resto ya estaba en la cache), "
-                "{} saltados porque la biblioteca ya no tiene sus shaders, {} de otro modo de estado dinamico y {} "
+                "{} saltados porque la biblioteca ya no tiene sus shaders, {} de otro modo de estado dinamico o de MSAA y {} "
                 "fallidos",
                 precalentado_parar_.load(std::memory_order_relaxed) ? "parado" : "terminado", segundos, prioridad,
                 hechos, n, compilados, double(ns_compilados) / 1e6,
@@ -14404,6 +14928,23 @@ class DibujosVulkanImpl final : public DibujosVulkan {
   std::array<uint64_t, 8> set4_cambios_{};  // binds by what changes: bit 0 VS, bit 1 PS, bit 2 shared
   uint64_t set4_primeros_ = 0;              // binds after a new command buffer, a new slot or the sky
   uint64_t set4_dibujos_ = 0;
+  /*
+   * fh2_nativo_constantes_por_contenido (BloqueConstantesRepetido). Per kind (0 VS, 1 PS), the blocks uploaded in the
+   * current submission by XXH3 and size: a direct-mapped table, an entry only valid in its epoch (the upload buffer
+   * it points into). A 64-bit XXH3 collision would bind another block; the pass key and the texture cache accept the
+   * same odds.
+   */
+  struct BloqueConstantes {
+    uint64_t huella = 0;
+    uint64_t epoca = UINT64_MAX;
+    VkDeviceSize offset = 0;
+    uint32_t bytes = 0;
+  };
+  static constexpr uint32_t kBloquesConstantes = 1024;  // per kind; power of 2
+  std::array<BloqueConstantes, 2 * kBloquesConstantes> bloques_constantes_{};
+  bool constantes_por_contenido_ = false;  // the cvar, read in CrearSubida
+  uint64_t huella_bloque_ = 0;             // of the block BloqueConstantesRepetido just missed, for Anotar
+  std::array<uint64_t, 2> constantes_repetidas_{};  // re-uploads avoided (cumulative, VS and PS)
   std::array<uint64_t, 3> resubidas_vs_{};  // constants uploaded again: by generation, by epoch, because they grow
   std::array<uint64_t, 3> resubidas_ps_{};
   std::chrono::steady_clock::time_point set4_informe_{};
@@ -14510,6 +15051,11 @@ class DibujosVulkanImpl final : public DibujosVulkan {
   bool pipeline_entre_pases_ = true;  // the cvar, once per command buffer (UsarRanura)
   bool pipeline_entre_pases_anotado_ = false;
   uint64_t pases_con_pipeline_ = 0;   // passes started with a bound pipeline that is kept
+  // fh2_nativo_vertices_sin_espera (BarreraVertices). The cvar, read with the render passes' first creation.
+  bool vertices_sin_espera_ = false;
+  bool barrera_vs_pendiente_ = false;  // a barrier recorded, for the pass that opens next
+  bool pase_vs_sincronizado_ = false;  // the open pass started after one
+  uint64_t vs_barreras_ = 0, vs_pases_reabiertos_ = 0, vs_barreras_previas_ = 0, vs_reabiertos_previos_ = 0;
   uint64_t entre_pases_pases_previos_ = 0;
   uint64_t entre_pases_conservados_previos_ = 0;
   std::chrono::steady_clock::time_point entre_pases_informe_{};
@@ -14623,10 +15169,11 @@ class DibujosVulkanImpl final : public DibujosVulkan {
   // vistas_: 2.7 % of the ring thread in a race. Maintained together with vistas_ in RanuraVista
   // (insertion) and in QuitarVista (every removal).
   std::unordered_map<VkImage, std::vector<uint64_t>> vistas_por_imagen_;
-  std::unordered_map<uint32_t, std::pair<VkSampler, uint32_t>> samplers_;
+  std::unordered_map<uint64_t, std::pair<VkSampler, uint32_t>> samplers_;
   // Diagnostic: filter values already logged (RanuraSampler).
   uint32_t aniso_vistos_ = 0;
   bool aniso_anotado_ = false;  // nfsmw_nativo_anisotropico, one line when the first one is created
+  float sesgo_lod_maximo_ = 2.0f;  // maxSamplerLodBias (2 is Vulkan's minimum), for the fetch's mip bias
   uint32_t diag_mip_minimo_ = 0;  // nfsmw_nativo_diag_mip_minimo, read once per frame
   // nfsmw_nativo_sombras_sesgo_*, read once per frame.
   int32_t sombras_sesgo_constante_ = 0;
@@ -14663,6 +15210,182 @@ class DibujosVulkanImpl final : public DibujosVulkan {
   uint64_t fh2_vigilados_reusados_ = 0, fh2_vigilados_copiados_ = 0, fh2_vigilados_reinicios_ = 0;
   std::atomic<uint64_t> fh2_avisos_escritura_{0};
 
+  /*
+   * fh2_nativo_cache_buscas: one range the cache admits, into the persistent buffer binding 3 points to. If the guest
+   * has not written it since its copy, the copy from any earlier frame is reused; otherwise it is copied again to the
+   * current segment, its watch enabled before the copy reads the guest data. false only if no segment had room,
+   * which Dibujar rules out before its render pass.
+   */
+  bool CopiarBuscaEnCache(uint32_t direccion, uint32_t palabras, xenos::Endian orden, const uint8_t* datos,
+                          VkDeviceSize& offset) {
+    const uint32_t bytes = palabras * 4;
+    const uint64_t huella = cache_buscas_comprobar_ ? XXH3_64bits(datos, bytes) : 0;
+    const uint64_t sucias_antes = cache_buscas_.sucias();
+    uint64_t offset_cache = 0;
+    if (cache_buscas_.Buscar(direccion, bytes, uint32_t(orden), offset_cache, huella)) {
+      ++fh2_vigilados_reusados_;
+      offset = VkDeviceSize(offset_cache);
+      return true;
+    }
+    // The 10 s report's columns in this mode: 1 not in the cache yet (or dropped with its segment), 4 written by the
+    // guest since its copy.
+    fh2_bytes_busca_motivo_[cache_buscas_.sucias() != sucias_antes ? 4 : 1] += bytes;
+    uint32_t tick = 0;
+    if (cache_buscas_.Reservar(bytes, 4, offset_cache, tick)) {
+      memoria_->EnablePhysicalMemoryAccessCallbacks(direccion, bytes, true, false);
+      CopiarVertices(TrabajoCopia{datos, cache_buscas_datos_ + offset_cache, palabras, orden});
+      cache_buscas_.Anotar(direccion, bytes, uint32_t(orden), offset_cache, tick, huella);
+      offset = VkDeviceSize(offset_cache);
+    } else {
+      // Every cache segment still in use by the GPU (hits keep them busy): this submission's copy goes to the
+      // slot's transient area, not remembered. The cache's llenos() counts these.
+      if (!BuscaTransitoria(bytes, offset)) {
+        ++buscas_sin_sitio_;
+        return false;
+      }
+      CopiarVertices(TrabajoCopia{datos, cache_buscas_datos_ + offset, palabras, orden});
+    }
+    AnotarCopiaBusca(offset, bytes);
+    ++fh2_vigilados_copiados_;
+    InformeBuscas();
+    return true;
+  }
+
+  // Room in the current slot's transient area of the fetch cache's buffer (after the cache's segments; reset by
+  // UsarRanura, whose slot fence has been waited, like the upload buffer).
+  bool BuscaTransitoria(uint32_t bytes, VkDeviceSize& offset) {
+    const VkDeviceSize inicio = (buscas_transitoria_usado_ + 3) & ~VkDeviceSize(3);
+    if (inicio + bytes > kBuscasTransitoria) {
+      return false;
+    }
+    buscas_transitoria_usado_ = inicio + bytes;
+    offset = cache_buscas_.Tamano() + VkDeviceSize(ranura_actual_) * kBuscasTransitoria + inicio;
+    return true;
+  }
+
+  // A fetch copy just written to the fetch cache's buffer: to publish on non-coherent memory, and counted in the
+  // "buscas" column of "subidas en 10 s" as the upload buffer copies were.
+  void AnotarCopiaBusca(VkDeviceSize offset, uint32_t bytes) {
+    cache_buscas_escrito_min_ = std::min(cache_buscas_escrito_min_, offset);
+    cache_buscas_escrito_max_ = std::max(cache_buscas_escrito_max_, offset + bytes);
+    bytes_por_categoria_[1] += bytes;
+  }
+
+  // The fetch copy lines every 10 s. It looks at the clock once every 1024 copied fetches, not on each (~160,000
+  // per second).
+  void InformeBuscas() {
+    static auto ultimo = std::chrono::steady_clock::now();
+    static uint32_t copias_desde_reloj = 0;
+    if ((++copias_desde_reloj & 1023) != 0 || std::chrono::steady_clock::now() - ultimo <= std::chrono::seconds(10)) {
+      return;
+    }
+    ultimo = std::chrono::steady_clock::now();
+    double motivos[6];
+    for (size_t m = 0; m < 6; ++m) {
+      motivos[m] = double(fh2_bytes_busca_motivo_[m]) / 1048576.0;
+      fh2_bytes_busca_motivo_[m] = 0;
+    }
+    if (cache_buscas_activo_) {
+      const CacheVerticesEntreFotogramas& c = cache_buscas_;
+      REXLOG_INFO("[fh2 nativo] cache de buscas: {} consultas, {} aciertos ({:.1f} MB sin copiar), {} copias ({:.1f} "
+                  "MB), {} sucias, {} volatiles, {} entradas, {} segmentos reciclados, {} veces lleno, {} avisos de "
+                  "escritura, {} discrepancias{}; {} envios por zona transitoria llena, {} sin sitio",
+                  c.consultas(), c.aciertos(), double(c.bytes_ahorrados()) / 1048576.0, c.copias(),
+                  double(c.bytes_copiados()) / 1048576.0, c.sucias(), c.volatiles(), c.entradas(), c.reciclados(),
+                  c.llenos(), c.avisos(), c.discrepancias(), cache_buscas_comprobar_ ? " (comprobando)" : "",
+                  envios_llenos_buscas_, buscas_sin_sitio_);
+      REXLOG_INFO("[fh2 nativo] buscas copiadas en 10 s (MB): menos de 4 KB {:.0f}, fuera de la cache {:.0f}, "
+                  "no admitidas (primera vez en el envio) {:.0f}, escritas por el juego {:.0f}, otro orden {:.0f}",
+                  motivos[0], motivos[1], motivos[2] + motivos[3], motivos[4], motivos[5]);
+    } else {
+      REXLOG_INFO("[fh2 nativo] buscas vigiladas: {} rangos, {} reusadas, {} copiadas, {} avisos de escritura, "
+                  "tabla reiniciada {} veces",
+                  fh2_vigilados_n_.load(), fh2_vigilados_reusados_, fh2_vigilados_copiados_,
+                  fh2_avisos_escritura_.load(), fh2_vigilados_reinicios_);
+      REXLOG_INFO("[fh2 nativo] buscas copiadas en 10 s (MB): menos de 4 KB {:.0f}, tabla llena {:.0f}, primera vez "
+                  "en el fotograma {:.0f}, otro bufer de subida {:.0f}, escritas por el juego {:.0f}, otro orden "
+                  "{:.0f}", motivos[0], motivos[1], motivos[2], motivos[3], motivos[4], motivos[5]);
+    }
+    double mb[7];
+    for (size_t c = 0; c < 7; ++c) {
+      mb[c] = double(bytes_por_categoria_[c] - bytes_por_categoria_previos_[c]) / 1048576.0;
+    }
+    bytes_por_categoria_previos_ = bytes_por_categoria_;
+    REXLOG_INFO("[fh2 nativo] subidas en 10 s (MB): vertices {:.0f} buscas {:.0f} indices {:.0f} constantes VS "
+                "{:.0f} PS {:.0f} compartidas {:.0f} texturas {:.0f}",
+                mb[0], mb[1], mb[2], mb[3], mb[4], mb[5], mb[6]);
+  }
+
+  // fh2_nativo_cache_buscas: its persistent buffer, storage usage (binding 3), of the upload buffer's memory type and
+  // mapped for good, and its write watch. 58 MB on every phone, under the 64 MB the upload buffer already binds whole
+  // there (so it fits maxStorageBufferRange): 40 MB of cache segments and a 6 MB transient area per work slot. The
+  // transient areas take what is not cached, so a submission is only forced when one fills, like the upload buffer.
+  // Before them, hits kept every segment busy and the S23 Ultra forced ~110 submissions a second. If anything fails,
+  // the fetches stay in the upload buffer.
+  void CrearCacheBuscas() {
+    if (!REXCVAR_GET(fh2_nativo_cache_buscas) || memoria_ == nullptr) {
+      return;
+    }
+    cache_buscas_.Configurar(kSegmentosCacheBuscas);
+    VkBufferCreateInfo info{};
+    info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+    info.size = cache_buscas_.Tamano() + kRanurasDeTrabajo * kBuscasTransitoria;
+    info.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+    info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    bool bien = dfn_.vkCreateBuffer(device_, &info, nullptr, &cache_buscas_bufer_) == VK_SUCCESS;
+    if (bien) {
+      VkMemoryRequirements requisitos{};
+      dfn_.vkGetBufferMemoryRequirements(device_, cache_buscas_bufer_, &requisitos);
+      VkMemoryAllocateInfo reserva{};
+      reserva.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+      reserva.allocationSize = requisitos.size;
+      reserva.memoryTypeIndex = subida_tipo_;
+      cache_buscas_tamano_real_ = requisitos.size;
+      bien = ((requisitos.memoryTypeBits >> subida_tipo_) & 1) &&
+             dfn_.vkAllocateMemory(device_, &reserva, nullptr, &cache_buscas_memoria_) == VK_SUCCESS &&
+             dfn_.vkBindBufferMemory(device_, cache_buscas_bufer_, cache_buscas_memoria_, 0) == VK_SUCCESS &&
+             dfn_.vkMapMemory(device_, cache_buscas_memoria_, 0, VK_WHOLE_SIZE, 0,
+                              reinterpret_cast<void**>(&cache_buscas_datos_)) == VK_SUCCESS;
+    }
+    if (bien) {
+      cache_buscas_vigilancia_ = memoria_->RegisterPhysicalMemoryInvalidationCallback(
+          &CacheVerticesEntreFotogramas::EscrituraVigilada, &cache_buscas_);
+      bien = cache_buscas_vigilancia_ != nullptr;
+    }
+    if (!bien) {
+      DestruirCacheBuscas();
+      REXLOG_ERROR("[fh2 nativo] cache de buscas: no se pudo crear su bufer de {} MB; quedan en el de subida",
+                   cache_buscas_.Tamano() >> 20);
+      return;
+    }
+    cache_buscas_activo_ = true;
+    cache_buscas_comprobar_ = REXCVAR_GET(fh2_nativo_cache_buscas_comprobar);
+    REXLOG_INFO("[fh2 nativo] cache de buscas: ENCENDIDA, {} MB en el tipo de memoria {} ({}){}",
+                cache_buscas_.Tamano() >> 20, subida_tipo_,
+                subida_coherente_ ? "coherente" : "se publica antes de enviar",
+                cache_buscas_comprobar_ ? "; comprobando cada acierto con XXH3" : "");
+  }
+
+  void DestruirCacheBuscas() {
+    cache_buscas_activo_ = false;
+    if (cache_buscas_vigilancia_ && memoria_) {
+      memoria_->UnregisterPhysicalMemoryInvalidationCallback(cache_buscas_vigilancia_);
+      cache_buscas_vigilancia_ = nullptr;
+    }
+    if (cache_buscas_datos_) {
+      dfn_.vkUnmapMemory(device_, cache_buscas_memoria_);
+      cache_buscas_datos_ = nullptr;
+    }
+    if (cache_buscas_bufer_ != VK_NULL_HANDLE) {
+      dfn_.vkDestroyBuffer(device_, cache_buscas_bufer_, nullptr);
+      cache_buscas_bufer_ = VK_NULL_HANDLE;
+    }
+    if (cache_buscas_memoria_ != VK_NULL_HANDLE) {
+      dfn_.vkFreeMemory(device_, cache_buscas_memoria_, nullptr);
+      cache_buscas_memoria_ = VK_NULL_HANDLE;
+    }
+  }
+
   // Called on the writing guest thread with the memory lock held: only atomics here.
   static std::pair<uint32_t, uint32_t> Fh2EscrituraVigilada(void* contexto, uint32_t inicio, uint32_t longitud,
                                                             bool exacto) {
@@ -14677,10 +15400,27 @@ class DibujosVulkanImpl final : public DibujosVulkan {
       }
     }
     self->fh2_avisos_escritura_.fetch_add(1, std::memory_order_relaxed);
-    return std::make_pair(uint32_t(0), UINT32_MAX);
+    // Only the range just marked dirty may lose its watch (see CacheVerticesEntreFotogramas::EscrituraVigilada).
+    return std::make_pair(inicio, longitud);
   }
   uint32_t fh2_diag_textura_avisos_ = 0;  // the draw's pixel shader number, for the framing diagnostics
 #endif
+  // fh2_nativo_cache_buscas (CrearCacheBuscas). Ring only, except the write watch. Outside FH2_RECOMP so the shared
+  // code (binding 3, AntesDeEnviar, UsarRanura) reads one flag that stays false there.
+  CacheVerticesEntreFotogramas cache_buscas_;
+  bool cache_buscas_activo_ = false;
+  bool cache_buscas_comprobar_ = false;
+  VkBuffer cache_buscas_bufer_ = VK_NULL_HANDLE;
+  VkDeviceMemory cache_buscas_memoria_ = VK_NULL_HANDLE;
+  VkDeviceSize cache_buscas_tamano_real_ = 0;
+  uint8_t* cache_buscas_datos_ = nullptr;
+  void* cache_buscas_vigilancia_ = nullptr;
+  VkDeviceSize cache_buscas_escrito_min_ = ~VkDeviceSize(0), cache_buscas_escrito_max_ = 0;
+  uint64_t envios_llenos_buscas_ = 0;  // submissions forced because its segments were all in use
+  uint64_t buscas_sin_sitio_ = 0;      // fetches left empty for want of room (expected 0)
+  static constexpr uint32_t kSegmentosCacheBuscas = 10;                  // 40 MB of 4 MB segments
+  static constexpr VkDeviceSize kBuscasTransitoria = VkDeviceSize(6) << 20;  // per work slot
+  VkDeviceSize buscas_transitoria_usado_ = 0;  // in the current slot's area
   // fh2_nativo_cache_vertices (CrearCacheVertices). Ring only, except the write watch (CacheVerticesEntreFotogramas).
   CacheVerticesEntreFotogramas cache_vertices_;
   bool cache_activo_ = false;
@@ -14692,6 +15432,17 @@ class DibujosVulkanImpl final : public DibujosVulkan {
   void* cache_vigilancia_ = nullptr;
   // What was written to it since the last submission, to publish it on non-coherent memory (AntesDeEnviar).
   VkDeviceSize cache_escrito_min_ = ~VkDeviceSize(0), cache_escrito_max_ = 0;
+  // fh2_nativo_cache_indices (CrearCacheIndices): its own persistent buffer. Same model as above.
+  CacheIndicesEntreFotogramas cache_indices_;
+  bool cache_indices_activo_ = false;
+  bool cache_indices_comprobar_ = false;
+  VkBuffer cache_indices_bufer_ = VK_NULL_HANDLE;
+  VkDeviceMemory cache_indices_memoria_ = VK_NULL_HANDLE;
+  VkDeviceSize cache_indices_tamano_real_ = 0;
+  uint8_t* cache_indices_datos_ = nullptr;
+  void* cache_indices_vigilancia_ = nullptr;
+  // What was written to it since the last submission, to publish it on non-coherent memory (AntesDeEnviar).
+  VkDeviceSize cache_indices_escrito_min_ = ~VkDeviceSize(0), cache_indices_escrito_max_ = 0;
   VkBuffer subida_enlazada_ = VK_NULL_HANDLE;  // the upload buffer bufers_vertices_ was filled with
   // IndicesDe16 (nfsmw_nativo_indices_neon). Ring only.
   int32_t indices_neon_ = -1;  // -1 cvar not read, 0 plain loop, 1 NEON
@@ -14712,6 +15463,7 @@ class DibujosVulkanImpl final : public DibujosVulkan {
   uint32_t stencil_grabado_[2] = {};  // RB_STENCILREFMASK for front and back
   bool stencil_grabado_valido_ = false;
   VkIndexType tipo_indices_grabado_ = VK_INDEX_TYPE_MAX_ENUM;
+  VkBuffer bufer_indices_grabado_ = VK_NULL_HANDLE;  // the buffer the index binding above came from
   // Shared constants of the previous draw and where they were uploaded.
   uint32_t compartidas_previas_[kPalabrasCompartidas] = {};
   uint64_t compartidas_miradas_ = 0;    // C6 report, to decide how to make the block cheaper
@@ -14759,6 +15511,9 @@ class DibujosVulkanImpl final : public DibujosVulkan {
   int32_t diag_sin_z_vs_ = REXCVAR_GET(fh2_nativo_diag_sin_z_vs);
   std::set<uint64_t> fh2_diag_textura_vistos_;  // fh2_nativo_diag_textura: (PS, resolved) pairs logged
   std::string diag_omitir_vs_texto_;  // fh2_nativo_diag_omitir_vs, read once per frame
+  // fh2_mundo_grama (app/src/fh2_mundo.cpp): the procedural vegetation's fade distances times this; 0 = none drawn.
+  float fh2_vegetacion_ = 1.0f;
+  bool fh2_sin_multidao_ = false;  // fh2_mundo_multidao = 0: the crowd's draws are skipped
   std::string omitir_vs_texto_;
   std::unordered_set<uint32_t> omitir_vs_;
   bool diag_vertices_repetidos_ = false;
@@ -14927,11 +15682,13 @@ class DibujosVulkanImpl final : public DibujosVulkan {
   uint64_t pase_clave_ = 0;
 #if defined(FH2_RECOMP)
   uint32_t muestras_pase_ = 0;  // fh2_nativo_msaa: sample count of the open pass (0 = one sample)
+  uint32_t muestras_pedidas_pase_ = 0;  // the count the open pass was asked for (its identity), for the fast path
   uint32_t msaa_max_muestras_ = UINT32_MAX;  // cvar ∩ device caps, evaluated once (0 = MSAA unavailable)
+  uint32_t msaa_tipo_perezoso_ = UINT32_MAX - 1;  // memory types with LAZILY_ALLOCATED (bits), not read yet
   bool msaa_invalido_ = false;  // a multisample image/pass/pipeline failed: stay 1x for the session
   uint64_t msaa_pases_ = 0;
-  uint64_t msaa_semilla_bytes_ = 0;
-  uint64_t msaa_sin_borrado_ = 0;  // passes the game did not clear (seeded from the 1x image)
+  uint64_t msaa_sin_borrado_ = 0;  // passes that wanted MSAA but load the previous content: opened 1x
+  uint64_t msaa_continuados_ = 0;  // fh2_nativo_msaa_persistente: MSAA passes that load the stored samples
   uint64_t msaa_fallos_ = 0;
 #endif
   uint64_t pase_generacion_ = UINT64_MAX;
@@ -15322,6 +16079,9 @@ class DibujosVulkanImpl final : public DibujosVulkan {
   std::thread precalentado_hilo_;
   const ShadersNativos* biblioteca_precalentado_ = nullptr;
   uint32_t precalentado_eds_ = 0;
+#if defined(FH2_RECOMP)
+  uint32_t precalentado_muestras_ = 0;  // fh2_nativo_msaa: the session's sample count, for the prewarm thread
+#endif
   bool precalentado_decidido_ = false;
   bool precalentado_diferencia_ = false;
   std::chrono::steady_clock::time_point precalentado_inicio_{};

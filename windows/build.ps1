@@ -23,6 +23,7 @@ param(
     [string]$IsoPath,
     [int]$Jobs = 8,
     [string]$ToolchainRoot = (Join-Path $PSScriptRoot '..\..\dbce-mods-forza-horizon\.local\toolchain'),
+    [string]$SdkRoot,
     [switch]$ConfigureOnly
 )
 $ErrorActionPreference = 'Stop'
@@ -30,6 +31,14 @@ $windows = $PSScriptRoot
 $repo = (Resolve-Path (Join-Path $windows '..')).Path
 $gameRoot = Join-Path $repo 'assets\game_root'
 $logs = Join-Path $windows '.local\logs'
+$configureArgs = @('--preset', 'win-amd64-release')
+if ($SdkRoot) {
+    $sdkPath = (Resolve-Path -LiteralPath $SdkRoot).Path
+    if (-not (Test-Path -LiteralPath (Join-Path $sdkPath 'CMakeLists.txt') -PathType Leaf)) {
+        throw 'SdkRoot must contain the SDK CMakeLists.txt.'
+    }
+    $configureArgs += "-DREXSDK_DIR=$sdkPath"
+}
 New-Item -ItemType Directory -Force $logs | Out-Null
 
 function Step([string]$text) { Write-Host "`n=== $text" -ForegroundColor Cyan }
@@ -101,6 +110,10 @@ foreach ($line in $envLines) {
     if ($i -gt 0) { [Environment]::SetEnvironmentVariable($line.Substring(0, $i), $line.Substring($i + 1), 'Process') }
 }
 if (-not $seen) { throw "VsDevCmd failed: $devCmd" }
+# CMake reads the process architecture on Windows; isolated runners may omit it.
+if (-not $env:PROCESSOR_ARCHITECTURE) {
+    $env:PROCESSOR_ARCHITECTURE = [Environment]::GetEnvironmentVariable('PROCESSOR_ARCHITECTURE', 'Machine')
+}
 $env:PATH = (@(
     (Join-Path $toolDirs['llvm-20.1.8'] 'bin'),
     (Join-Path $toolDirs['cmake-3.31.10-windows-x86_64'] 'bin'),
@@ -113,7 +126,7 @@ $env:CMAKE_BUILD_PARALLEL_LEVEL = "$Jobs"
 Push-Location $windows
 try {
     Step 'Configure (win-amd64-release)'
-    & cmake --preset win-amd64-release 2>&1 | Tee-Object (Join-Path $logs 'configure.log')
+    & cmake @configureArgs 2>&1 | Tee-Object (Join-Path $logs 'configure.log')
     if ($LASTEXITCODE) { throw "configure failed ($LASTEXITCODE), see $logs\configure.log" }
     if ($ConfigureOnly) { return }
 
@@ -123,7 +136,7 @@ try {
 
     # Codegen wrote sources.cmake on its first run; configure again so the recompiled
     # sources become part of the build.
-    & cmake --preset win-amd64-release | Out-Null
+    & cmake @configureArgs | Out-Null
     if ($LASTEXITCODE) { throw "reconfigure failed ($LASTEXITCODE)" }
 
     $register = Join-Path $windows 'generated\default\fh2_register.cpp'

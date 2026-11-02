@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "enabled": true,
+  "desktopX": -2560,
+  "desktopY": 0,
+  "centerIndex": 1,
+  "eyeDistanceMm": 660,
+  "eyeHeightMm": 0,
+  "bezelGapMm": 0,
+  "starts": {
+    "cockpit": "realistic",
+    "bonnet": "game",
+    "bumper": "realistic",
+    "chase": "game"
+  },
+  "displays": [
+    { "id": "left", "widthPx": 2560, "heightPx": 1440, "widthMm": 697, "heightMm": 392, "curveRadiusMm": 0, "foldDegrees": 65 },
+    { "id": "center", "widthPx": 2560, "heightPx": 1440, "widthMm": 697, "heightMm": 392, "curveRadiusMm": 0, "foldDegrees": 0 },
+    { "id": "right", "widthPx": 2560, "heightPx": 1440, "widthMm": 697, "heightMm": 392, "curveRadiusMm": 0, "foldDegrees": 70 }
+  ]
+}

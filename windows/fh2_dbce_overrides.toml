@@ -1,0 +1,47 @@
+# ============================================================================
+#  Forza Horizon 2 (Xbox 360, USA) - Windows-only codegen declarations
+#
+#  Included after ../app/overrides.toml from fh2_manifest.toml. ../app stays the
+#  tree shared with the Linux/Android build; what is here is for the Windows
+#  wheel build only. Flat schema (sections at the root).
+# ============================================================================
+
+# The H-shifter gate read (action 7, sub_82D841A0) sends every refused read (focus
+# without context 0, a first binding other than code 24, a chord, a class other than
+# Wheel, no shifter flag) to one instruction, 0x82D84260 `li r3,-1` (3860FFFF): the
+# same value as a held REVERSE. The driving sampler sub_824972C0 turns -1 into gear
+# 0, and the edge-triggered transmission (sub_82EBC460, sub_82EBCAD8) shifts to
+# reverse on it. Fh2GearReadRefused (src/fh2_wheel_gear.cpp) returns 10 there
+# instead: no gate request, which both handlers skip and the game writes itself
+# when input is off. The accepted read (0x82D84258 `lha r3,92(r1)` A861005C, then
+# `b 0x82D84264` 48000008) never reaches this instruction.
+[[midasm_hook]]
+address = 0x82D84260
+name = "Fh2GearReadRefused"
+registers = ["r3"]
+jump_address_on_true = 0x82D84264
+
+# H-shifter reverse speed limit (owner decision; src/fh2_reverse_guard.cpp). The paddle path refuses 1 -> R unless the
+# forward velocity dot(B+192, B+144) is below MaxForwardVelShiftReverseMPH (Physics +360) x 0.44704; the H-gate block
+# has no such test. Each hook runs at its block's label, before the block reads the request: Manual sub_82EBC460
+# 0x82EBC658 `lbz r11,6696(r31)` (897F1A28), ManualWithClutch sub_82EBCAD8 0x82EBCCC0 `lbz r9,6696(r31)` (893F1A28).
+# It neither returns nor jumps; it may only turn a refused reverse request (0) into no request (10).
+[[midasm_hook]]
+address = 0x82EBC658
+name = "Fh2GateReverseGuard"
+context = true
+
+[[midasm_hook]]
+address = 0x82EBCCC0
+name = "Fh2GateReverseGuard"
+context = true
+
+# Forza Data Out (src/fh2_telemetry.cpp, docs/telemetry-data-out-plan.md). The local input controller sub_8249A8E8
+# hands its controls to the car at 0x8249B3F0 `bctrl` (4E800421) through vtable +80, after `lwz r3,0(r3)`
+# (80630000), `addi r4,r1,96` (38810060), `lwz r11,0(r3)` and `lwz r11,80(r11)` (816B0050): r3 is the car's
+# ICarDynamics and r4 the controls. The hook only copies a snapshot; it neither returns nor jumps, so the call runs
+# as before. It reads nothing unless fh2_telemetry_port is set.
+[[midasm_hook]]
+address = 0x8249B3F0
+name = "Fh2TelemetryHandOff"
+context = true

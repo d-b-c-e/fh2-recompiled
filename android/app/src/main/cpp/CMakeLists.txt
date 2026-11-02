@@ -44,7 +44,8 @@ set(SDL_STATIC OFF CACHE BOOL "Use SDL's shared Android library" FORCE)
 # not built here (run tools/codegen or rexglue codegen on the PC first).
 add_subdirectory("${CMAKE_CURRENT_LIST_DIR}/../../../../../app" "fh2-app")
 target_sources(fh2 PRIVATE "${CMAKE_CURRENT_LIST_DIR}/android_touch.cpp"
-                           "${CMAKE_CURRENT_LIST_DIR}/android_rendimiento.cpp")
+                           "${CMAKE_CURRENT_LIST_DIR}/android_rendimiento.cpp"
+                           "${CMAKE_CURRENT_LIST_DIR}/android_vibration.cpp")
 
 if(TARGET SDL3-shared)
     set_target_properties(SDL3-shared PROPERTIES
@@ -55,6 +56,13 @@ if(TARGET SDL3-shared)
         MINSIZEREL_POSTFIX ""
     )
 endif()
+
+# The launcher's home screen video (HomeVideo.java): the game's PressStart.wmv through the libavcodec the game
+# links (WMV3 and WMA Pro), shown on a TextureView with the sound through AAudio.
+add_library(fh2_home_video SHARED home_video.cpp android_home_video.cpp)
+target_link_libraries(fh2_home_video PRIVATE libavcodec libavutil android aaudio log)
+target_link_options(fh2_home_video PRIVATE "-Wl,-z,max-page-size=16384"
+    "LINKER:--exclude-libs,liblibavcodec.a:liblibavutil.a")
 
 # The namespace hooks adrenotools opens from nativeLibraryDir to load an imported driver: built and packaged.
 add_dependencies(fh2 main_hook file_redirect_hook gsl_alloc_hook hook_impl)
@@ -69,6 +77,12 @@ foreach(target fh2 rexruntime)
     target_link_options(${target} PRIVATE
         "LINKER:--exclude-libs,liblibavcodec.a:liblibavutil.a")
 endforeach()
+
+# Every guest function sub_X is a weak, exported alias of __imp__sub_X (DEFINE_REX_FUNC), so that a hook can
+# replace it. In a shared library each of the ~316,000 calls between them then went through the PLT (46,423
+# slots in libmain.so; @plt was 5.4 % of the game's main thread on the Moto G9 Play). Bound inside libmain.so
+# they become direct branches; a hook still wins, it is chosen when libmain.so is linked.
+target_link_options(fh2 PRIVATE "-Wl,-Bsymbolic-functions")
 
 # ThinLTO (as nfsmw-android uses) is off for now: the guest code is about twice NFSMW's and the build machine
 # has 14 GB of RAM. Turn it on once the plain build works.

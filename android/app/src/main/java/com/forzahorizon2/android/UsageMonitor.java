@@ -8,7 +8,10 @@ import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileReader;
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 
@@ -16,7 +19,9 @@ import java.util.Map;
  * GPU, CPU and RAM use for the in-game overlay ("Mostrar uso de GPU, CPU e RAM"). Call sample() about once a second,
  * off the UI thread: it reads a few dozen /proc files.
  *
- * - GPU: the kernel driver's busy percentage (Adreno kgsl, or Mali), "--" where the phone does not let apps read it.
+ * - GPU: the kernel driver's busy percentage (Adreno kgsl, Mali on Samsung/Google, MediaTek's GED or the Mali
+ *   devfreq). Where none of them can be read (Android 16 on MediaTek blocks them all), the native renderer's own
+ *   GPU time per second, from two timestamps per submission (fh2_nativo_medir_gpu_uso); "--" without either.
  * - CPU: the game's share of all cores, and its busiest thread as a share of one core. When that thread is near
  *   100 % (usually "GPU Commands", the emulated GPU's command processor), it is what limits the frame rate.
  * - RAM: the game's resident memory, and the phone's available memory of its total.
@@ -30,6 +35,9 @@ final class UsageMonitor {
             "/sys/class/kgsl/kgsl-3d0/gpubusy",              // Adreno: "busy total"
             "/sys/class/misc/mali0/device/utilization",      // Mali (some kernels)
             "/sys/kernel/gpu/gpu_busy",                      // Mali (Samsung, Google)
+            // MediaTek (Dimensity, Mali): none of the above exist there; its GED module has the load.
+            "/sys/kernel/ged/hal/gpu_utilization",           // "loading block idle", e.g. "37 0 63"
+            "/sys/module/ged/parameters/gpu_loading",        // "37"
     };
 
     // GPU clock and its cap (Adreno kgsl, in Hz). The cap is what the system's thermal and power limits leave: on
@@ -45,6 +53,8 @@ final class UsageMonitor {
     private final int cores = Math.max(1, Runtime.getRuntime().availableProcessors());
     private String gpuFile;
     private boolean gpuLogged;
+    private long lastGpuNs = -1;
+    private long lastGpuTime;
     private long lastProcessTicks = -1;
     private long lastTime;
     private Map<String, Long> lastThreadTicks = new HashMap<>();
@@ -223,7 +233,7 @@ final class UsageMonitor {
         if (activityManager != null) {
             ActivityManager.MemoryInfo info = new ActivityManager.MemoryInfo();
             activityManager.getMemoryInfo(info);
-            ram += String.format(Locale.ROOT, AppLanguage.tr(" (livre %.1f/%.1f)", " (free %.1f/%.1f)"), info.availMem / (double) (1 << 30),
+            ram += String.format(Locale.ROOT, AppLanguage.tr(R.string.free_1f_1f), info.availMem / (double) (1 << 30),
                     info.totalMem / (double) (1 << 30));
         }
 
@@ -232,8 +242,10 @@ final class UsageMonitor {
 
     private String gpu() {
         if (gpuFile == null) {
-            for (String path : GPU_FILES) {
-                if (readLine(path) != null) {
+            // The first file whose value makes sense, not just the first readable one: a file that reads but is
+            // not a percentage would otherwise hold "--" for the whole session.
+            for (String path : gpuCandidates()) {
+                if (gpuPercent(path, readLine(path)) != null) {
                     gpuFile = path;
                     break;
                 }
@@ -242,23 +254,95 @@ final class UsageMonitor {
                 gpuLogged = true;
                 Log.i(TAG, "GPU use read from " + (gpuFile != null ? gpuFile : "nowhere (no readable file)"));
             }
-            if (gpuFile == null) return "GPU --";
+            if (gpuFile == null) return timestampGpu();
         }
-        String line = readLine(gpuFile);
-        if (line == null) return "GPU --";
-        String[] fields = line.trim().replace("%", "").trim().split("\\s+");
+        Double percent = gpuPercent(gpuFile, readLine(gpuFile));
+        return percent == null ? "GPU --" : String.format(Locale.ROOT, "GPU %.0f%%", percent);
+    }
+
+    /** The GPU's busy share of the last second from the renderer's timestamps; "GPU --" without them. */
+    private String timestampGpu() {
+        long ns;
         try {
+            ns = nativeGpuNs();
+        } catch (UnsatisfiedLinkError e) {
+            ns = -1;
+        }
+        long now = System.nanoTime();
+        String text = "GPU --";
+        if (ns >= 0 && lastGpuNs >= 0 && now > lastGpuTime) {
+            // Consecutive submissions can overlap by a little (the next one starts at the top of the pipe).
+            text = String.format(Locale.ROOT, "GPU %.0f%%", Math.min(100.0, 100.0 * (ns - lastGpuNs) / (now - lastGpuTime)));
+        }
+        lastGpuNs = ns;
+        lastGpuTime = now;
+        return text;
+    }
+
+    private static native long nativeGpuNs();
+
+    /** Whether some kernel file gives the GPU %; if not, the overlay needs the renderer's timestamps. */
+    static boolean kernelGpuReadable() {
+        for (String path : gpuCandidates()) {
+            if (gpuPercent(path, readLine(path)) != null) return true;
+        }
+        return false;
+    }
+
+    /** The files tried for the GPU %, in order: the fixed ones, then each Mali/GPU devfreq node's load. */
+    static List<String> gpuCandidates() {
+        List<String> paths = new ArrayList<>(Arrays.asList(GPU_FILES));
+        File[] devfreq = new File("/sys/class/devfreq").listFiles();
+        if (devfreq != null) {
+            for (File node : devfreq) {
+                String name = node.getName().toLowerCase(Locale.ROOT);
+                if (name.contains("mali") || name.contains("gpu")) paths.add(new File(node, "load").getPath());
+            }
+        }
+        return paths;
+    }
+
+    /** The busy percentage in a GPU file's line, by the file's format; null when it is not one (or unreadable). */
+    static Double gpuPercent(String path, String line) {
+        if (line == null) return null;
+        try {
+            String text = line.trim();
             double percent;
-            if (fields.length >= 2) {  // gpubusy: busy and total time of the last window
+            if (path.endsWith("/gpubusy")) {  // kgsl: busy and total time of the last window
+                String[] fields = text.split("\\s+");
                 long total = Long.parseLong(fields[1]);
                 percent = total > 0 ? 100.0 * Long.parseLong(fields[0]) / total : 0;
-            } else {
-                percent = Double.parseDouble(fields[0]);
+            } else if (path.endsWith("/load")) {  // devfreq: "42@800000000Hz"
+                percent = Double.parseDouble(text.split("@")[0].trim());
+            } else {  // "42 %", "42", or GED's "loading block idle": the first number
+                percent = Double.parseDouble(text.replace("%", " ").trim().split("\\s+")[0]);
             }
-            return String.format(Locale.ROOT, "GPU %.0f%%", percent);
-        } catch (NumberFormatException e) {
-            return "GPU --";
+            return percent >= 0 && percent <= 100 ? percent : null;
+        } catch (RuntimeException e) {
+            return null;
         }
+    }
+
+    /** Each GPU file tried and what it gave, for the diagnostic report (phones where the overlay shows "--"). */
+    static String gpuProbeReport() {
+        StringBuilder out = new StringBuilder();
+        for (String path : gpuCandidates()) {
+            File file = new File(path);
+            String line = readLine(path);
+            out.append("  ").append(path).append(": ");
+            if (!file.exists()) {
+                out.append("não existe");
+            } else if (line == null) {
+                out.append("existe, sem permissão de leitura");
+            } else {
+                Double percent = gpuPercent(path, line);
+                String shown = line.length() > 60 ? line.substring(0, 60) + "…" : line;
+                out.append('"').append(shown.trim()).append('"')
+                        .append(percent != null ? String.format(Locale.ROOT, " -> %.0f %%", percent) : " -> não é um valor");
+            }
+            out.append('\n');
+        }
+        return out.toString();
     }
 
     // utime + stime (fields 14 and 15) of a /proc stat line, -1 if unreadable. The name in parentheses may hold

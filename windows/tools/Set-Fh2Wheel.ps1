@@ -26,6 +26,10 @@
 .EXAMPLE
     pwsh -File windows\tools\Set-Fh2Wheel.ps1 -Buttons 'GEAR1=<shifter>|0,GEAR2=<shifter>|1,REVERSE=<shifter>|7'
     An H-shifter on its own device (<shifter> = its vvvv:pppp USB IDs or part of its name).
+.EXAMPLE
+    pwsh -File windows\tools\Set-Fh2Wheel.ps1 -SteeringScale 150 -BrakeDeadzoneBottom 5 -BrakeDeadzoneTop 10
+    Sets raw-wheel sensitivity and brake travel; other settings are preserved.
+    A per-pedal bottom value of -1 inherits PedalDeadzone.
 #>
 param(
     [string]$Config = (Join-Path $PSScriptRoot '..\out\build\win-amd64-release\fh2.toml'),
@@ -33,9 +37,18 @@ param(
     [string]$Device,
     [ValidateRange(0, 15)][int]$SteeringAxis,
     [ValidateSet('on', 'off')][string]$SteeringInvert,
+    [ValidateRange(10, 1000)][int]$SteeringScale,
+    [ValidateRange(0, 50)][int]$SteeringDeadzone,
+    [ValidateRange(0, 50)][int]$PedalDeadzone,
     [string]$Throttle,
+    [ValidateRange(-1, 50)][int]$ThrottleDeadzoneBottom,
+    [ValidateRange(0, 50)][int]$ThrottleDeadzoneTop,
     [string]$Brake,
+    [ValidateRange(-1, 50)][int]$BrakeDeadzoneBottom,
+    [ValidateRange(0, 50)][int]$BrakeDeadzoneTop,
     [string]$Clutch,
+    [ValidateRange(-1, 50)][int]$ClutchDeadzoneBottom,
+    [ValidateRange(0, 50)][int]$ClutchDeadzoneTop,
     [string]$Buttons,
     [string]$FfbDevice,
     [ValidateRange(0, 100)][int]$Strength,
@@ -49,8 +62,12 @@ $ErrorActionPreference = 'Stop'
 
 $keys = [ordered]@{
     Enabled = 'wheel_enabled'; Device = 'wheel_device'; SteeringAxis = 'wheel_steering_axis'
-    SteeringInvert = 'wheel_steering_invert'; Throttle = 'wheel_throttle'; Brake = 'wheel_brake'
-    Clutch = 'wheel_clutch'; Buttons = 'wheel_buttons'; FfbDevice = 'wheel_ffb_device'
+    SteeringInvert = 'wheel_steering_invert'; SteeringScale = 'wheel_steering_scale'
+    SteeringDeadzone = 'wheel_steering_deadzone'; PedalDeadzone = 'wheel_pedal_deadzone'
+    Throttle = 'wheel_throttle'; ThrottleDeadzoneBottom = 'wheel_throttle_deadzone_bottom'; ThrottleDeadzoneTop = 'wheel_throttle_deadzone_top'
+    Brake = 'wheel_brake'; BrakeDeadzoneBottom = 'wheel_brake_deadzone_bottom'; BrakeDeadzoneTop = 'wheel_brake_deadzone_top'
+    Clutch = 'wheel_clutch'; ClutchDeadzoneBottom = 'wheel_clutch_deadzone_bottom'; ClutchDeadzoneTop = 'wheel_clutch_deadzone_top'
+    Buttons = 'wheel_buttons'; FfbDevice = 'wheel_ffb_device'
     Strength = 'wheel_ffb_strength'; Invert = 'wheel_ffb_invert'; Rumble = 'wheel_ffb_rumble'
     Scale = 'wheel_ffb_magnitude_max'; LogInputs = 'wheel_log_inputs'; Trace = 'wheel_ffb_trace'
 }

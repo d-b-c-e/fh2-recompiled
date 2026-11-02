@@ -1,0 +1,93 @@
+# SDK string serialization follow-up
+
+Current complete source route: [SDK reconstruction](../../docs/SDK-SOURCE-20261102.md)
+provides one cumulative59bc->e223 patch and an offline fresh-directory helper,
+verified against the exact qualified Git tree without private commit objects.
+This is an alternative to the incremental patches below, not an additional
+patch to apply on top of them. The combined native734/e223 candidate already
+includes preservation, save feedback andGEAR8; live/UI/device gates remain open.
+
+Later [config-preservation follow-up](../../docs/CONFIG-PRESERVATION-20261102.md)
+adds a separate patch on top of bddeb167: parsed source-span edits, malformed
+input refusal, BOM/comment preservation and non-overwriting staging. It passes
+67 new preservation checks and the existing200. It has not replaced the
+qualified SDK gitlink, native DLL, app or private payload described below.
+
+[Save-result feedback](../../docs/CONFIG-SAVE-RESULT-20261102.md) is an additional
+patch on fb1822c9:18 actual failure/success checks and overlay object compile pass;
+rendered UI/native SDK integration remain pending. Keep the two patches in order.
+
+[GEAR8 binding](../../docs/GEAR8-20261102.md) is a separate parser patch, also
+applicable directly to bddeb167. Actual parser-to-generated-reader/sampler
+fixture434 checks pass; SDL polling, native SDK build and physical delivery
+remain unverified.
+
+`shiftglue-sdk-cvar-strings.patch` fixes raw quoted strings in all three SDK
+TOML writers: both `SerializeToTOML` overloads and `MergeIntoTOML`, which backs
+`SaveConfig`. It reuses the vendored toml++ 3.4.0 formatter with no literal or
+multiline flags, so paths, quotes, control bytes and Unicode round trip while
+each cvar stays on one physical line. Non-string values retain their old path.
+The SDK source is BSD-3-Clause; its copyright/license remain in the source tree.
+See [toml++ serialization documentation](https://github.com/marzer/tomlplusplus/blob/v3.4.0/docs/pages/main_page.md).
+Context7 had no versioned entry; constructor/flag behavior was checked against
+the exact vendored 3.4.0 headers as well as the library documentation.
+
+Base SDK: `499e0579b2e8a52f68b99748198816be7217ecee`.
+Local successor: `bddeb1670c2b6890795653076880dc1b9196b7a5`.
+Patch SHA-256: `67DB71AC46884CF594FFC0BE330354AAB67A056BD80EBF3AA50E49FEB8A14CA2`.
+`git apply --check` passes against clean base499. Apply in an isolated SDK
+worktree; the original build tree and matching private payload remain on SDK499.
+The source branch gitlink is now advanced to bddeb167 for a separate new build.
+No SDK upstream push or app-main promotion was made.
+
+The patch includes regression cases in the existing SDK cvar unit suite. That
+complete test target was not built here. Instead,
+[`fh2_cvar_strings_fixture.cpp`](../tools/fh2_cvar_strings_fixture.cpp) was compiled
+with the actual production `src/core/cvar.cpp`, first at base499 and then fixed.
+It uses real serializer/merge/SaveConfig/LoadConfig calls and eight inert strings:
+HID paths, quotes, mixed quoting, newlines/tabs, NUL/controls, Unicode and empty.
+The fixture never initializes game, graphics or input/device systems.
+
+Base499 fails TOML parsing with `unknown escape sequence '\H'`; fixed source
+passes **200 checks**, including real save/load and stable repeated saves, typed
+booleans/integers, unknown host keys and table preservation. No mocks replace the
+cvar functions. To isolate them from the existing runtime DLL's exports, the
+focused harness uses a generated import library omitting `rex::cvar` exports;
+only unchanged backend functions come from that DLL. A first unfiltered-link
+attempt failed with duplicate symbols before any fixture ran; it is retained.
+
+Local evidence root:
+`E:/Source/game-modding/.worktrees/vuro-fh2-overnight-20261102/.local/vuro-20261102/`.
+`Run-CvarStrings-02.ps1` records exact flags, pinned dependency paths and import
+map generation. `cvar-strings-02/result.json` records compiler/fixture identities,
+input hashes and successful cleanup; its SHA-256 is
+`64DA0F7F0FE51C3426262B856A74455A1F04FB765E484EC9F02E34B32767B2AF`.
+Guna GO491236, jobs1, completed `2026-11-02T06:56:42Z`; all owned children
+quiescent, process queries safe, named lease released and literal token absent.
+The receipt and per-step logs are authoritative; the runner's final console
+summary rendered null fields, so completion was verified from the saved receipt.
+
+`sdk-cvar-strings.bundle` retains the exact successor locally, requires base499,
+and passes `git bundle verify`. SHA-256:
+`95534D66928C89CC59165D3188A1058153043D1B4E470859624B9659B8B5F6D0`.
+The patch is published source; the bundle and native fixture outputs stay private.
+
+The fix is now included in the app7ce460f/SDKbddeb167 native candidate. Fresh
+codegen/native build and generated gear/reverse/telemetry checks pass. A second
+fixture links only the new runtime import library (no production cvar.cpp in
+the executable) and passes all200 checks through the **built DLL**.
+Build04's final fixture compile initially lacked the fmt include path. That
+failed receipt remains intact; only harness include/link setup was corrected.
+`qualification-05/result.json` pins the04 receipt and every unchanged output
+hash, then records the passing DLL check and verified lease cleanup. Its SHA-256
+is `C67224CED0AD2B3D74388D80DB4A96D773A5F9B335F4C178C7EAFEC2E45AF762`.
+Exact worker: `Check-CvarRuntime-02.ps1`; qualification runner:
+`Qualify-CvarRuntime.ps1`, both in the evidence root above. Guna GO491322,
+native jobs2/focused fixture jobs1, finished `2026-11-02T07:30:08Z`.
+
+See the [candidate handoff](../../docs/HANDOFF-WINDOWS-20261102.md) for matching
+binary hashes and private payload. The older `6c49f9c`/SDK499 payload is retained
+and still has the original escaping bug. Physical safety, live config round
+trips inside FH2, gameplay, force feedback and owner acceptance remain
+unverified. This patch does not broaden the existing merger's supported syntax
+or change its file writer.

@@ -1,0 +1,213 @@
+diff --git a/include/rex/cvar.h b/include/rex/cvar.h
+index 15733e1a..52da024c 100644
+--- a/include/rex/cvar.h
++++ b/include/rex/cvar.h
+@@ -240,9 +240,9 @@ bool HasNonDefaultValue(std::string_view name);
+ std::vector<std::string> ListModifiedFlags();
+ std::string SerializeToTOML();
+ std::string SerializeToTOML(std::string_view category);
+-/// `existing` with each registered flag's top-level line set to its current
+-/// value and modified flags without a line appended. Comments, tables and
+-/// keys that are not flags (such as a host's schema version) are kept.
++/// `existing` with registered root scalar values replaced by source span and
++/// missing modified flags inserted in root scope. Other bytes are preserved.
++/// Throws on malformed/duplicate TOML or a registered key holding a table/array.
+ std::string MergeIntoTOML(std::string_view existing);
+ 
+ /// Callback invoked when a CVAR value changes
+diff --git a/src/core/cvar.cpp b/src/core/cvar.cpp
+index 6f16a563..dffc73d7 100644
+--- a/src/core/cvar.cpp
++++ b/src/core/cvar.cpp
+@@ -16,6 +16,7 @@
+ #include <mutex>
+ #include <optional>
+ #include <sstream>
++#include <stdexcept>
+ #include <string_view>
+ #include <unordered_map>
+ 
+@@ -580,43 +581,45 @@ std::string SerializeToTOML(std::string_view category) {
+ 
+ std::string MergeIntoTOML(std::string_view existing) {
+   std::lock_guard lock(GetRegistryMutex());
+-  const std::string newline = existing.find("\r\n") != std::string_view::npos ? "\r\n" : "\n";
+-  std::string result;
++  const size_t bom = existing.starts_with("\xEF\xBB\xBF") ? 3 : 0;
++  const auto body = existing.substr(bom);
++  const auto parsed = toml::parse(body);  // Refuse malformed/duplicate input before producing any edits.
++  const std::string newline = body.find("\r\n") != std::string_view::npos ? "\r\n" : "\n";
++  std::vector<size_t> lines{0};
++  for (size_t i = 0; i < body.size(); ++i) {
++    if (body[i] == '\n') lines.push_back(i + 1);
++  }
++  const auto offset = [&](toml::source_position pos) {
++    if (!pos || pos.line > lines.size()) throw std::runtime_error("Invalid TOML source position");
++    size_t at = lines[pos.line - 1];
++    // toml++ 3.4 columns count decoded codepoints, not UTF-8 bytes or editor cells.
++    for (size_t column = 1; column < pos.column; ++column) {
++      if (at == body.size() || body[at] == '\n') throw std::runtime_error("Invalid TOML source column");
++      ++at;
++      while (at < body.size() && (static_cast<unsigned char>(body[at]) & 0xC0) == 0x80) ++at;
++    }
++    return at;
++  };
++  struct Edit { size_t begin, end; std::string value; };
++  std::vector<Edit> edits;
+   std::unordered_map<std::string, bool> written;
+-  bool top_level = true;
+-  size_t begin = 0;
+-  while (begin < existing.size()) {
+-    size_t end = existing.find('\n', begin);
+-    const size_t next = end == std::string_view::npos ? existing.size() : end + 1;
+-    std::string_view line = existing.substr(begin, next - begin);
+-    begin = next;
+-    std::string_view content = line;
+-    while (!content.empty() && (content.back() == '\n' || content.back() == '\r')) {
+-      content.remove_suffix(1);
+-    }
+-    size_t at = content.find_first_not_of(" \t");
+-    if (at != std::string_view::npos && content[at] == '[') {
+-      top_level = false;
+-    }
+-    if (top_level && at != std::string_view::npos) {
+-      size_t key_end = at;
+-      while (key_end < content.size() &&
+-             (std::isalnum(static_cast<unsigned char>(content[key_end])) || content[key_end] == '_')) {
+-        ++key_end;
+-      }
+-      size_t equals = content.find_first_not_of(" \t", key_end);
+-      if (key_end > at && equals != std::string_view::npos && content[equals] == '=') {
+-        const std::string key(content.substr(at, key_end - at));
+-        auto it = GetRegistryIndex().find(key);
+-        if (it != GetRegistryIndex().end() && !written[key]) {
+-          written[key] = true;
+-          result += std::string(content.substr(0, at)) + key + " = " +
+-                    TOMLLiteral(GetRegistryStorage()[it->second]) + newline;
+-          continue;
+-        }
+-      }
+-    }
+-    result += line;
++  size_t insert_at = body.size();
++  for (const auto& [key, node] : parsed) {
++    // Also safe for implicit dotted tables: insertion is before their first root statement.
++    if (node.is_table() || node.is_array_of_tables()) {
++      const auto start = key.source().begin;
++      if (!start || start.line > lines.size()) throw std::runtime_error("Invalid TOML table position");
++      insert_at = std::min(insert_at, lines[start.line - 1]);
++    }
++    const auto found = GetRegistryIndex().find(std::string(key.str()));
++    if (found == GetRegistryIndex().end()) continue;
++    if (!node.is_value()) throw std::runtime_error("A cvar key must hold a scalar TOML value");
++    written[std::string(key.str())] = true;
++    const auto region = node.source();
++    const size_t begin = offset(region.begin), end = offset(region.end);
++    if (end < begin) throw std::runtime_error("Invalid TOML value span");
++    const auto literal = TOMLLiteral(GetRegistryStorage()[found->second]);
++    if (body.substr(begin, end - begin) != literal) edits.push_back({bom + begin, bom + end, literal});
+   }
+   std::string appended;
+   for (const auto& entry : GetRegistryStorage()) {
+@@ -625,30 +628,13 @@ std::string MergeIntoTOML(std::string_view existing) {
+     }
+   }
+   if (!appended.empty()) {
+-    if (!result.empty() && result.back() != '\n') {
+-      result += newline;
+-    }
+-    // Keys after a table header would belong to that table.
+-    if (!top_level) {
+-      appended = "# Saved from the settings overlay" + newline + appended;
+-      size_t first_table = std::string::npos;
+-      for (size_t at = 0; at < result.size();) {
+-        size_t line_end = result.find('\n', at);
+-        size_t start = result.find_first_not_of(" \t", at);
+-        if (start != std::string::npos && start < line_end && result[start] == '[') {
+-          first_table = at;
+-          break;
+-        }
+-        if (line_end == std::string::npos) {
+-          break;
+-        }
+-        at = line_end + 1;
+-      }
+-      result.insert(first_table == std::string::npos ? result.size() : first_table, appended);
+-    } else {
+-      result += appended;
+-    }
++    if (insert_at && body[insert_at - 1] != '\n') appended.insert(0, newline);
++    edits.push_back({bom + insert_at, bom + insert_at, std::move(appended)});
+   }
++  std::sort(edits.begin(), edits.end(), [](const Edit& a, const Edit& b) { return a.begin > b.begin; });
++  std::string result(existing);
++  for (const auto& edit : edits) result.replace(edit.begin, edit.end - edit.begin, edit.value);
++  (void)toml::parse(result);  // Never pass an invalid generated document to the file writer.
+   return result;
+ }
+ 
+@@ -814,35 +800,28 @@ bool IsFinalized() {
+ }
+ 
+ void SaveConfig(const std::filesystem::path& config_path) {
+-  // Merge into the file rather than replace it: a host keeps its own keys
+-  // (a schema version, settings its launcher wrote) in the same file, and
+-  // rewriting it with only the modified flags lost them.
+-  std::string existing;
+-  {
+-    std::ifstream input(config_path, std::ios::binary);
+-    if (input) {
++  try {
++    std::string existing;
++    if (std::filesystem::exists(config_path)) {
++      std::ifstream input(config_path, std::ios::binary);
++      if (!input) throw std::runtime_error("Existing config is not readable");
+       existing.assign(std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>());
++      if (input.bad()) throw std::runtime_error("Failed to read existing config");
++    } else {
++      existing = "# Auto-generated cvar configuration\n";
++    }
++    const std::string content = MergeIntoTOML(existing);
++    if (content == existing) {
++      REXLOG_DEBUG("SaveConfig: nothing changed");
++      return;
+     }
+-  }
+-  if (existing.starts_with("\xEF\xBB\xBF")) {
+-    existing.erase(0, 3);
+-  }
+-  if (existing.empty()) {
+-    existing = "# Auto-generated cvar configuration\n";
+-  }
+-  const std::string content = MergeIntoTOML(existing);
+-  if (content == existing) {
+-    REXLOG_DEBUG("SaveConfig: nothing changed");
+-    return;
+-  }
+-
+-  try {
+     std::filesystem::path temporary = config_path;
+     temporary += ".tmp";
+     {
+-      std::ofstream file(temporary, std::ios::binary | std::ios::trunc);
++      // An existing sibling may be a retained recovery artifact; never truncate it.
++      std::ofstream file(temporary, std::ios::binary | std::ios::trunc | std::ios::noreplace);
+       if (!file || !file.write(content.data(), std::streamsize(content.size())) || !file.flush()) {
+-        REXLOG_ERROR("SaveConfig: failed to write {}", rex::path_to_utf8(temporary));
++        REXLOG_ERROR("SaveConfig: failed to create/write {}", rex::path_to_utf8(temporary));
+         return;
+       }
+     }
+diff --git a/tests/unit/core/cvar_test.cpp b/tests/unit/core/cvar_test.cpp
+index 62516896..fc0485e0 100644
+--- a/tests/unit/core/cvar_test.cpp
++++ b/tests/unit/core/cvar_test.cpp
+@@ -534,7 +534,7 @@ TEST_CASE("cvar TOML merge keeps the host's own keys", "[cvar]") {
+   const auto merged = rex::cvar::MergeIntoTOML(existing);
+ 
+   CHECK(merged.find("# Host configuration.\r\nhost_schema = 27\r\n") == 0);
+-  CHECK(merged.find("test_int32_flag = 999\r\n") != std::string::npos);
++  CHECK(merged.find("test_int32_flag = 999  # old\r\n") != std::string::npos);
+   // A line for a flag back at its default is kept with that value.
+   CHECK(merged.find("test_bool_flag = false\r\n") != std::string::npos);
+   // Only top-level keys are flags; the table is left alone.

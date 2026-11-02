@@ -6,6 +6,8 @@
 
 [Português](README.pt-BR.md) · [Third-party notices](THIRD_PARTY_NOTICES.md) · [License: GPL-3.0](LICENSE)
 
+[![Discord](https://img.shields.io/badge/Discord-Join%20the%20server-5865F2?logo=discord&logoColor=white)](https://discord.gg/tpwfAyYy3Q)
+
 </div>
 
 > [!IMPORTANT]
@@ -62,8 +64,12 @@ rate on phones.
 What this project adds on top of the SDK:
 
 - An Android launcher: emulated or native renderer, render resolution in percent, MSAA/FXAA, anisotropic
-  filtering, shadow quality (native), FPS limit (30 to unlimited), present mode, thread pinning, game and app
+  filtering, shadow quality (native), world detail (grass, objects, reflections, shadow distance and crowd from
+  0.25x to 4x of the Xbox 360's, all but objects also off; grass, and shadows and crowd off, with the native
+  renderer), FPS limit (30 to unlimited), present mode, thread pinning, game and app
   language, an overlay with frame rate, GPU, CPU and RAM use, save import/export and backups.
+- A keyboard and a mouse as a controller, found on their own like a gamepad: the game reads them as an Xbox 360
+  pad, with a racing layout, the mouse turning the camera and every key rebindable in game.
 - The game played straight from its disc image (.iso): no extraction needed.
 - Custom Vulkan drivers (Turnip, Qualcomm packages) loaded through libadrenotools, with a Vulkan test before use.
 - An achievements page that lists the game's achievements, unlocked ones in color with their date, and a small
@@ -80,7 +86,9 @@ Known issues:
 
 - Low frame rate on phones, limited by the GPU emulation (command processing on fast phones, resolves and
   texture reloads on slower ones).
-- Collisions are sometimes missed on Android (the car passes through some objects); under investigation.
+- Cars collide with the world and with each other, but collision is not perfect yet: on Android the car still
+  passes through some objects now and then; under investigation.
+- In the paint shop, the car picture on the Designs card is stretched.
 - The native renderer still has image errors in some places; the emulated renderer is the faithful one.
 - Some menu options are not implemented yet (they are marked as such in the launcher).
 
@@ -126,6 +134,17 @@ Known issues:
    tools/rodar_pc.sh
    ```
 
+   **Regenerate the code after pulling changes to `app/overrides.toml`** (or any other `app/*.toml`). The
+   generated code is not in Git. This Linux build regenerates it when those files change, but the Android build
+   (step 4) cannot run the code generator, so if you only build the APK a fix made there does not reach it. For
+   example, the paint shop crash fix only declares the guest `setjmp` and `longjmp` in `app/overrides.toml`;
+   without regenerating, the game still closes when entering the paint shop. Run this step's build again, or the
+   generator alone:
+
+   ```sh
+   REXGLUE=$PWD/sdk/out/linux-amd64/rexglue tools/codegen.sh app
+   ```
+
 4. **Build the Android APK** (after step 3, which produced the generated code):
 
    ```sh
@@ -157,6 +176,19 @@ files on the phone (or next to the .iso), for example with `tools/enviar_bibliot
 **GPU drivers.** **Performance > GPU driver** imports an adrenotools driver package (.zip) and tests it with
 Vulkan before it can be chosen. On Adreno 6xx and 7xx a Mesa Turnip build is often faster than the phone's own
 driver.
+
+**Keyboard and mouse.** A Bluetooth or USB keyboard and mouse are found on their own, the way a gamepad is:
+there is nothing to turn on. The game reads them as an Xbox 360 pad, together with any pad that is connected,
+in a racing layout: A/D steer, W throttle, S brake, Space handbrake (A), the mouse and the arrows turn the
+camera, IJKL is the d-pad, Enter is Start, Esc and Tab are Back, C is B, X is X and Z is Y. The mouse takes the
+pointer the first time it moves. Any key can be changed in game with **F4** (the game's own settings window,
+category *Input/Keybinds/Controller*). The on-screen pad gets out of the way when a keyboard or a mouse is
+connected or used, and comes back when they are gone or on the first touch.
+
+## Tutorials
+
+- [Tutorial — Build do Android e biblioteca de shaders (português)](TUTORIAL_SHADERS_PT-BR.md): clone, codegen, biblioteca `fh2_shaders.nfsp`, APK, instalação no Moto G9 Play (Adreno 610) e configuração do renderizador nativo com fallback sem descriptor indexing (método A), sem Turnip.
+- [Tutorial — Android build and native shader library (English)](TUTORIAL_SHADERS_EN.md): same guide in English.
 
 ## Repository layout
 

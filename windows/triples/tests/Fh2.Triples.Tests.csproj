@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <OutputType>Exe</OutputType>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Fh2.Triples/Fh2.Triples.csproj" />
+    <Content Include="../fixtures/three-flat.json" Link="three-flat.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>

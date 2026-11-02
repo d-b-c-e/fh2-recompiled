@@ -42,3 +42,6 @@ sdk/thirdparty/
 
 # --- Windows build (windows/) ------------------------------------------------
 windows/.local/
+
+# Dear ImGui window layout, written by any ImGui program run from here
+imgui.ini
