@@ -72,6 +72,17 @@ try {
     Write-Fixture 'wheel_enabled = false'
     Refuses 'control characters' { & $set -Config $config -Device "name`nwheel_enabled = true" } 'Control characters'
     Refuses 'out of range strength' { & $set -Config $config -Strength 101 } 'greater than'
+    foreach ($bad in @(
+        @{SteeringScale=9}, @{SteeringScale=1001}, @{SteeringDeadzone=51}, @{PedalDeadzone=-1},
+        @{ThrottleDeadzoneBottom=-2}, @{BrakeDeadzoneBottom=51}, @{ClutchDeadzoneTop=-1}, @{ThrottleDeadzoneTop=51}
+    )) {
+        Refuses 'out of range calibration' { & $set -Config $config @bad } 'Cannot validate argument'
+    }
+    $calibrationOriginal = "# preserve`r`nwheel_enabled = false`r`nwheel_ffb_strength = 23 # keep`r`nwheel_steering_scale = 100 # travel`r`nwheel_brake_deadzone_bottom = 7 # rest`r`n[owner]`r`nvalue = 'unchanged'"
+    Write-Fixture $calibrationOriginal $true
+    & $set -Config $config -SteeringScale 150 -BrakeDeadzoneBottom -1
+    Check 'calibration edits only requested keys, including explicit inheritance' ((Read-Fixture) -ceq $calibrationOriginal.Replace('wheel_steering_scale = 100', 'wheel_steering_scale = 150').Replace('wheel_brake_deadzone_bottom = 7', 'wheel_brake_deadzone_bottom = -1'))
+    Check 'calibration retains BOM and exact backup' ([IO.File]::ReadAllBytes($config)[0] -eq 239 -and @((Backups) | Where-Object { [IO.File]::ReadAllText($_.FullName) -ceq $calibrationOriginal }).Count -eq 1)
     [IO.File]::WriteAllBytes($config, [byte[]]@(255, 254, 97, 0))
     Refuses 'invalid UTF-8' { & $set -Config $config -Enabled on } 'Unable to translate'
     [IO.File]::Delete($config)
@@ -81,11 +92,18 @@ try {
     Check 'new file is BOM-free UTF-8' ([IO.File]::ReadAllBytes($config)[0] -eq 119)
     Write-Fixture ''
     & $set -Config $config -Enabled off -Device '0eb7:0004' -SteeringAxis 15 -SteeringInvert on `
-        -Throttle '+axis2' -Brake 'Pedals|-axis1' -Clutch 'axis3' -Buttons 'GEAR1=0079:0006|0,REVERSE=0079:0006|7' `
+        -SteeringScale 1000 -SteeringDeadzone 50 -PedalDeadzone 0 `
+        -Throttle '+axis2' -ThrottleDeadzoneBottom -1 -ThrottleDeadzoneTop 0 `
+        -Brake 'Pedals|-axis1' -BrakeDeadzoneBottom 0 -BrakeDeadzoneTop 50 `
+        -Clutch 'axis3' -ClutchDeadzoneBottom 50 -ClutchDeadzoneTop 10 -Buttons 'GEAR1=0079:0006|0,REVERSE=0079:0006|7' `
         -FfbDevice 'Wheel' -Strength 0 -Invert on -Rumble 100 -Scale 1000000 -LogInputs on -Trace off
     $expectedValues = [ordered]@{
         wheel_enabled='false'; wheel_device='"0eb7:0004"'; wheel_steering_axis='15'; wheel_steering_invert='true'
+        wheel_steering_scale='1000'; wheel_steering_deadzone='50'; wheel_pedal_deadzone='0'
         wheel_throttle='"+axis2"'; wheel_brake='"Pedals|-axis1"'; wheel_clutch='"axis3"'
+        wheel_throttle_deadzone_bottom='-1'; wheel_throttle_deadzone_top='0'
+        wheel_brake_deadzone_bottom='0'; wheel_brake_deadzone_top='50'
+        wheel_clutch_deadzone_bottom='50'; wheel_clutch_deadzone_top='10'
         wheel_buttons='"GEAR1=0079:0006|0,REVERSE=0079:0006|7"'; wheel_ffb_device='"Wheel"'
         wheel_ffb_strength='0'; wheel_ffb_invert='true'; wheel_ffb_rumble='100'; wheel_ffb_magnitude_max='1000000'
         wheel_log_inputs='true'; wheel_ffb_trace='false'

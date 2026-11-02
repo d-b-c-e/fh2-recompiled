@@ -7,10 +7,12 @@ bddeb167 with config-preservation fb1822c9, save-result e35aedef and GEAR8.
 App source includes the production telemetry-sender e24b9b2 follow-up. The
 offline managed triple planner is retained; no native triple renderer is added.
 
-The SDK pin is retained locally through verified source bundles and the three
-published SDK patches. It is not claimed available from the third-party remote.
-Reconstruct on bddeb167 by applying cvar-preserve, save-result, then gear8;
-alternatively use the locally retained bundle chain. No SDK upstream push.
+The SDK pin is retained locally and is not claimed available from the third-party
+remote. The [complete source route](SDK-SOURCE-20261102.md) now reconstructs its
+exact tree from public59bc with one checked cumulative patch, without private
+commit objects. Earlier incremental patches/bundles remain available. No SDK
+upstream push. Later [existing input/FFB unit suites](SDK-INPUT-UNITS-20261102.md)
+also pass27 cases/227 assertions through this unchanged native runtime.
 
 Previous app7ce460f/SDKbddeb167 worktrees, logs, native binaries and private
 payloads remain separate and unchanged. This new pair passes a real fresh

@@ -1,14 +1,16 @@
 # FH2 wheel settings helper - November 2, 2026
 
-The PowerShell helper is ported from `ec3e04d` (published sync branch tip
-`e60e457`) onto app `6c49f9cdf1bebc188740fe47bf95ee4aabc735de`, whose SDK gitlink
-is `499e0579b2e8a52f68b99748198816be7217ecee`. All 15 existing options match that
-SDK's names, types and numeric bounds. This is a source and inert-file check;
+The PowerShell helper originated in `ec3e04d` (published sync branch tip
+`e60e457`) and was ported onto app6c49/SDK499 with15 options. It now exposes24
+explicit options against the qualified app734/SDKe223, adding raw steering and
+pedal calibration with matching SDK names, types and numeric bounds.
+This is a source and inert-file check;
 it does not qualify an installed executable, wheel, pedals, shifter or forces.
 
-The later app7ce460f/SDKbddeb167 native candidate retains these option mappings
-and includes the SDK string-save fix. It passes 200 save/load checks through its
-built DLL on inert files; no game or device acceptance is implied.
+The [combined native candidate](COMBINED-OFFLINE-20261102.md) includes the SDK
+string/preservation/save-result fixes. Existing input/FFB suites also pass through
+that built DLL; no game or device acceptance is implied. Calibration adds only
+script parameters for existing SDK cvars, so no native rebuild is required.
 
 ## Use
 
@@ -34,9 +36,18 @@ force direction or recommended strength is inferred.
 | Device | wheel_device | string |
 | SteeringAxis | wheel_steering_axis | integer 0-15 |
 | SteeringInvert | wheel_steering_invert | on/off -> boolean |
+| SteeringScale | wheel_steering_scale | integer 10-1000 |
+| SteeringDeadzone | wheel_steering_deadzone | integer 0-50 |
+| PedalDeadzone | wheel_pedal_deadzone | integer 0-50 |
 | Throttle | wheel_throttle | string |
+| ThrottleDeadzoneBottom | wheel_throttle_deadzone_bottom | integer -1 to50; -1 inherits PedalDeadzone |
+| ThrottleDeadzoneTop | wheel_throttle_deadzone_top | integer 0-50 |
 | Brake | wheel_brake | string |
+| BrakeDeadzoneBottom | wheel_brake_deadzone_bottom | integer -1 to50; -1 inherits PedalDeadzone |
+| BrakeDeadzoneTop | wheel_brake_deadzone_top | integer 0-50 |
 | Clutch | wheel_clutch | string |
+| ClutchDeadzoneBottom | wheel_clutch_deadzone_bottom | integer -1 to50; -1 inherits PedalDeadzone |
+| ClutchDeadzoneTop | wheel_clutch_deadzone_top | integer 0-50 |
 | Buttons | wheel_buttons | string |
 | FfbDevice | wheel_ffb_device | string |
 | Strength | wheel_ffb_strength | integer 0-100 |
@@ -48,10 +59,34 @@ force direction or recommended strength is inferred.
 
 Device selectors and bindings follow SDK `docs/RACING_WHEELS.md`: USB VID:PID,
 name fragment or `path:` selector; pedals use `[device|][+|-]axisN`; H-pattern
-bindings use `GEAR1` through `GEAR7` and `REVERSE`. Syntax and actual device
+bindings use `GEAR1` through `GEAR8` and `REVERSE` in the qualifiede223 SDK.
+Syntax and actual device
 availability are interpreted by the SDK, not validated by this text editor.
 Other SDK wheel options remain available through the existing config/overlay;
-this port deliberately retains the earlier helper's option surface.
+the helper now exposes24 explicit options, including raw steering/pedal calibration.
+
+## Raw-wheel calibration
+
+These nine added calibration options use the SDK's `wheel_*` raw-wheel path
+when wheel_enabled is true. They do not edit the separate `hid_wheel_*`
+gamepad shaping path. Actual SDKe223 RefreshWheelStateLocked supplies steering
+scale/deadzone to SteeringFromAxis, and each pedal's bottom/top values to
+ReadWheelPedalLocked -> PedalFromAxis. A bottom value of-1 substitutes the shared
+wheel_pedal_deadzone; a top value of0 means no full-travel dead zone.
+
+Steering scale100 is the SDK start;200 reaches full lock with half the input
+travel. Pedal bottom ignores noise at rest; top reaches fully pressed before
+the end of travel. Example file edit while FH2 is closed:
+
+```powershell
+pwsh -File windows/tools/Set-Fh2Wheel.ps1 -Config <inert-or-selected-fh2.toml> -SteeringScale 150 -BrakeDeadzoneBottom 5 -BrakeDeadzoneTop 10
+```
+
+Use `-BrakeDeadzoneBottom -1` to restore shared inheritance explicitly. Numeric
+zero and-1 are real values, not omission. The helper changes only supplied keys;
+it does not choose measurements, change defaults, enable the wheel, or alter
+force settings as a side effect. Existing game-running refusal and exact backup
+behavior apply to calibration edits too. Physical calibration remains unverified.
 
 ## Preservation and audit findings
 
@@ -70,7 +105,7 @@ this port deliberately retains the earlier helper's option surface.
 - The original helper used second-resolution backup names and normalized the
   end of the file/BOM. Those preservation defects are corrected. Relative paths
   without a directory component also work. A running `fh2` process blocks edits.
-- SDK `src/input/sdl/sdl_input_driver.cpp` defines the first 14 options;
+- SDK `src/input/sdl/sdl_input_driver.cpp` defines23 options;
   `src/input/ffb_trace.cpp` defines `wheel_ffb_trace`. The numeric ranges above
   match their `.range(...)` declarations. SDK `src/ui/rex_app.cpp` loads config
   beside the executable and defaults logs to its `logs` folder; the old helper's
@@ -88,17 +123,24 @@ applies to the retained SDK499 candidate; a live game round trip remains unverif
 
 ## Verification and remaining gates
 
-`pwsh -NoProfile -File windows/tools/Test-Fh2Wheel.ps1` passes **42 checks** on
+`pwsh -NoProfile -File windows/tools/Test-Fh2Wheel.ps1` passes **69 checks** on
 PowerShell 7.6.8 on Windows. Fixtures cover exact backup bytes, rapid successive writes,
 comments/tables/newlines/BOM/Unicode, string escaping and removal, zero/false,
-all 15 option mappings, read-only/no-op behavior, rejected inputs, new relative
+all24 option mappings, calibration limits/inheritance/selected-key preservation,
+read-only/no-op behavior, rejected inputs, new relative
 files, and refusal while a mocked FH2 process exists. Temporary files stay under
-the worktree's ignored `.local` and are removed after testing. The retained run
-log is `.local/wheel-helper-check.log` in the isolated helper worktree.
+the worktree's ignored `.local` and are removed after testing. The retained
+original42-check log is `.local/wheel-helper-check.log` in the isolated helper
+worktree. Current69-check log is windows/.local/wheel-calibration/helper01.log
+in the vuro triples worktree.
+Current log SHA256 `2C91E3B0980C205698EA15C86D945B641B91102292B7ED76E6212361048C05D7`.
+The source audit checks all9 new ranges and actual consumer keys against SDK
+declarations/macros, including shared-deadzone inheritance. Private audit
+windows/.local/wheel-calibration/source-audit.json SHA256
+`C775EC56925280F2536A6DA42ED39C1B0EC2F5B02A1FF191A824234C391DA38F`.
 
-No native build, game/process launch, device access, real profile/config write,
-installation or runtime test was performed. Vuro owns the separate native build
-and subsequent integration; this helper branch does not move app main or alter
-the SDK gitlink. README linkage is deferred to that integration. Runtime config
-loading/saving, physical bindings/force direction and safe force/focus-loss
-behavior remain separate gates.
+This helper increment performs no native build, game/process launch, device
+access, real profile/config write, installation or runtime test. The existing
+native candidate and SDK gitlink remain unchanged. Runtime file use, physical
+calibration/bindings/force direction and safe force/focus-loss behavior remain
+separate gates.
