@@ -1,5 +1,10 @@
 # Camera flag: native algebra, dirty state and static feed selection
 
+Later [overwrite/consumer investigation](CAMERA-SURVIVAL-20261102.md) locates
+the concrete post-write point and proves late matrix survival through the lazy
+cache. Its independent containment check is **HOLD**; the native asymmetric
+matrix/plane contract is not admitted from this flag algebra result.
+
 The flag follow-up resolves all four tested asymmetric matrix branches
 algebraically and finds an existing feed selecting **flag1 then symmetric
 mode0**. The flag setter changes only byte272: it does **not** dirty/rebuild the

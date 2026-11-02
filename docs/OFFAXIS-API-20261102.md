@@ -1,5 +1,9 @@
 # Existing native asymmetric camera API: different depth contract
 
+The [consumer follow-up](CAMERA-SURVIVAL-20261102.md) now reproduces a
+projection/derived-plane disagreement on conventional asymmetric inputs.
+Ordering/matrix survival passes; culling remains **HOLD**, with explicit exit2.
+
 The [flag follow-up](CAMERA-FLAG-CONTRACT-20261102.md) now explains all4 tested
 mathematical branches and the6 nonfinite survey cases, checks flag setter dirty
 behavior, and traces a static flag1/symmetric-mode0 feed. Live receiver/depth/
