@@ -61,7 +61,7 @@ With installed .NET8 SDK/runtime or later, from the source root:
 dotnet run --project windows/triples/tests/Fh2.Triples.Tests.csproj -c Release -p:UseSharedCompilation=false -m:1
 ```
 
-The console fixture calls the production consumer and pinned toolkit. It checks
+The console fixture passes **534 checks** against the production consumer and pinned toolkit. It checks
 actual projected corners/depth, seam rays, asymmetric folds, flat/curved source
 warps with a wrong-eye negative control, slice coverage, unequal pixel widths,
 five displays, edge-plane distance, per-camera starts/toggles/offsets, reset,

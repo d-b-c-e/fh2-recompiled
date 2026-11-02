@@ -32,10 +32,10 @@ generated guest source or the expanded image.
 | Boundary | Observed source | Meaning / limitation |
 | --- | --- | --- |
 | App setup | windows/src/main.cpp, Fh2App::OnPreSetup/OnPostSetup | Existing input/telemetry/capture lifecycle; no scene callback or triple renderer |
-| Camera update | sub_829C11C8, called by wrappers including sub_829C45xx | Updates camera state then calls sub_829BE688; calling this whole update three times would also repeat camera smoothing/state |
+| Camera update | sub_829C11C8, called by sub_829C4440 and sub_829C45D8 | Updates camera state then calls sub_829BE688; calling this whole update three times would also repeat camera smoothing/state |
 | Linked-console camera adjustment | sub_829BE688, prior docs/multiscreen-trace.md | Conditional yaw/FOV adjustment for one console, not a scene/render-loop multiplier |
 | View submission | tail of sub_829C11C8, return0x829C13C4 | Loads singleton0x83598C0C, vtable+48, r4=0, four SIMD vectors; virtual method target and argument meanings still need completion |
-| View-manager construction | sub_82D3BF80 | Allocates24400 bytes, calls sub_82D3B430, stores singleton0x83598C0C, invokes vtable+972 initialization |
+| View-manager construction | sub_82D3BF80 | Allocates24400 bytes, calls sub_82D3B430, stores singleton0x83598C0C, invokes vtable+972 initialization; constructor initializes128 records at+16 with stride176 |
 | Draw packet dispatch | SDK src/graphics/command_processor.cpp, draw packet path | Guest draw/resolve packets arrive after guest-side visibility selection |
 | Vulkan draw | SDK src/graphics/vulkan/command_processor.cpp, IssueDraw/IssueDrawImpl | Prepares FH1 targets, then CmdVkDraw/CmdVkDrawIndexed; not an engine scene traversal |
 | Camera observation | SDK src/graphics/vulkan/fh1_camera.cpp, NoteCameraDraw/FinishCameraFrame | Tracks WVP c128-c131 and car c0-c3 for temporal work; heuristic/delayed observation is not authoritative camera ownership |
