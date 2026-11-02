@@ -1,5 +1,12 @@
 # FH2 Recompiled — Windows build (ShiftGlue SDK)
 
+The November 2 combined candidate passes the native Windows build and offline
+gear/reverse/telemetry checks. See the [current handoff](../docs/HANDOFF-WINDOWS-20261102.md)
+for its exact app/SDK pair, private payload and remaining runtime gates.
+The [wheel settings helper](../docs/WHEEL-SETUP-20261102.md) edits only supplied
+options with backups; its file checks do not qualify physical inputs or forces.
+Agent game/device testing remains held pending the physical output safety route.
+
 Upstream FH2 Recompiled targets Android and Linux. This folder builds the same game for
 **Windows x64** on the [ShiftGlue SDK](https://github.com/arcanite24/shiftglue-sdk), the
 ReXGlue 0.10.0 fork behind [Pinyon Shift](https://github.com/arcanite24/pinyon-shift)
@@ -18,7 +25,7 @@ not apply to a desktop GPU.
 | `fh2_manifest.toml` (same inputs, `windows/generated` output) | `overrides*.toml` (function boundaries) |
 | `src/main.cpp`, `fh2_toque.cpp`, `fh2_medidor.cpp` (from the prototype) | `src/fh2_correcoes.cpp`, `fh2_teste_entrada.cpp`, `fh2_captura.cpp` |
 | `rexglue_proto.cmake`, `tools/tabela_registro.py` (from the prototype) | |
-| `thirdparty/shiftglue-sdk` (submodule, same revision as Pinyon Shift 0.6.1: `59bc11f5`, with its wheel force feedback, `docs/RACING_WHEELS.md`) | |
+| `thirdparty/shiftglue-sdk` (submodule, local candidate `499e0579` based on Pinyon Shift 0.6.1's `59bc11f5`; see current handoff for source availability) | |
 
 ## Supported disc
 
