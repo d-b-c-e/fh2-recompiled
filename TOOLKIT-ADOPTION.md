@@ -8,7 +8,7 @@ input shim. Source-only planner work does not establish rendered triples.
 | STD-041 | in progress | Canonical RigPlanner consumer, Game/Realistic and measured-eye curve warp pass offline checks; guest scene/culling and compositor not connected |
 | STD-042 | unchecked | No camera overlay, live offsets or stage-start restoration |
 | STD-043 | unchecked | No new hotkey/H-pattern implementation or live delivery claim |
-| STD-044 | partial | Wheel helper has42 inert preservation checks; SDK merger/writer still has broader preservation limits |
+| STD-044 | partial | Wheel helper42; isolated SDKfb1822c9 source-span merge/refusal/staging preservation67 checks plus existing200 PASS. Qualified SDKbddeb/native app unchanged; new SDK/app/UI integration pending |
 | STD-045 | unchecked | No force default changes; physical motion/haptic safety route held |
 | STD-046 | in progress | Offline independent per-camera starts/selection/FOV offsets/reset; native camera identity/F7/persistence/placement pending |
 | STD-047 | in progress | One span rectangle, edge-plane geometry, N-display/curved-slice coverage tested; no renderer/window mutation yet |

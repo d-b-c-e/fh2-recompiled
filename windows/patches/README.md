@@ -1,5 +1,11 @@
 # SDK string serialization follow-up
 
+Later [config-preservation follow-up](../../docs/CONFIG-PRESERVATION-20261102.md)
+adds a separate patch on top of bddeb167: parsed source-span edits, malformed
+input refusal, BOM/comment preservation and non-overwriting staging. It passes
+67 new preservation checks and the existing200. It has not replaced the
+qualified SDK gitlink, native DLL, app or private payload described below.
+
 `shiftglue-sdk-cvar-strings.patch` fixes raw quoted strings in all three SDK
 TOML writers: both `SerializeToTOML` overloads and `MergeIntoTOML`, which backs
 `SaveConfig`. It reuses the vendored toml++ 3.4.0 formatter with no literal or
