@@ -20,13 +20,15 @@ p.add_argument("--built-sdk", required=True, type=Path)
 p.add_argument("--generated", required=True, type=Path)
 p.add_argument("--cxx", required=True, type=Path)
 p.add_argument("--out", required=True, type=Path)
+p.add_argument("--built-parser", action="store_true", help="Import the parser itself from the built runtime DLL")
 a = p.parse_args()
 root = Path(__file__).resolve().parents[1]
 source, built, out = a.source_sdk.resolve(), a.built_sdk.resolve(), a.out.resolve()
 out.mkdir(parents=True, exist_ok=False)
 record = {"status": "fail", "startedUtc": datetime.now(timezone.utc).isoformat(), "steps": [],
           "gameLaunched": False, "physicalDevicesInitialized": False, "graphicsInitialized": False,
-          "ownerStateWritten": False, "generatedRoutinesOnSyntheticMemory": True}
+          "ownerStateWritten": False, "generatedRoutinesOnSyntheticMemory": True,
+          "parserMode": "built-runtime-dll" if a.built_parser else "production-source"}
 
 
 def run(name, command, timeout=120):
@@ -44,9 +46,12 @@ try:
                  "--sdk", built, "--cxx", a.cxx.resolve(), "--out", out / "guest", "--emit-only"])
     llvm = a.cxx.resolve().parent
     exports = run("exports", [llvm / "llvm-readobj.exe", "--coff-exports", built / "out/win-amd64/rexruntime.dll"])
-    names = [x for x in re.findall(r"^\s+Name: (.+)$", exports, re.M) if x.startswith("?PadControlFromName@input@rex@@")]
-    assert len(names) == 1, "Expected exactly the production PadControlFromName export"
-    (out / "pad-name.def").write_text("LIBRARY rexruntime.dll\nEXPORTS\n" + names[0] + "\n")
+    prefixes = ["?PadControlFromName@input@rex@@"]
+    if a.built_parser:
+        prefixes += ["?ParseWheelButtonBindings@sdl@input@rex@@"]
+    names = [x for x in re.findall(r"^\s+Name: (.+)$", exports, re.M) if any(x.startswith(v) for v in prefixes)]
+    assert len(names) == len(prefixes), "Expected exactly the requested production parser/name exports"
+    (out / "pad-name.def").write_text("LIBRARY rexruntime.dll\nEXPORTS\n" + "\n".join(names) + "\n")
     run("imports", [llvm / "llvm-dlltool.exe", "-m", "i386:x86-64", "-d", out / "pad-name.def", "-l", out / "pad-name.lib"])
     shutil.copyfile(built / "out/win-amd64/rexruntime.dll", out / "rexruntime.dll")
     driver = (source / "src/input/sdl/sdl_input_driver.cpp").read_text()
@@ -93,8 +98,10 @@ int main() {
                "-Wno-unused-variable", "-Wno-unused-label", "-I", out / "guest", "-I", source / "include"]
     for directory in ["thirdparty/simde", "thirdparty/fmt/include", "thirdparty/spdlog/include"]:
         command += ["-I", built / directory]
-    command += [out / "bridge.cpp", root / "src/fh2_wheel_gear.cpp", source / "src/input/sdl/wheel_mapping.cpp",
-                out / "pad-name.lib", "-o", out / "bridge.exe"]
+    command += [out / "bridge.cpp", root / "src/fh2_wheel_gear.cpp"]
+    if not a.built_parser:
+        command += [source / "src/input/sdl/wheel_mapping.cpp"]
+    command += [out / "pad-name.lib", "-o", out / "bridge.exe"]
     run("compile", command)
     run("run", [out / "bridge.exe"], 15)
     record["status"] = "pass"

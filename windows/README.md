@@ -1,5 +1,10 @@
 # FH2 Recompiled — Windows build (ShiftGlue SDK)
 
+Latest offline successor: [app734fff4/SDKe223de8d](../docs/COMBINED-OFFLINE-20261102.md)
+passes fresh native build and built-DLL config/sender/GEAR8 qualification, with
+matching private output staged. No game/device/install or rendered UI claim;
+physical motion/haptic safety remains held. The older pair below is retained.
+
 The November 2 combined candidate passes the native Windows build and offline
 gear/reverse/telemetry checks. See the [current handoff](../docs/HANDOFF-WINDOWS-20261102.md)
 for its exact app/SDK pair, private payload and remaining runtime gates.
