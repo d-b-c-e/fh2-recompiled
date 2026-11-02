@@ -10,6 +10,11 @@ qualified SDK gitlink, native DLL, app or private payload described below.
 patch on fb1822c9:18 actual failure/success checks and overlay object compile pass;
 rendered UI/native SDK integration remain pending. Keep the two patches in order.
 
+[GEAR8 binding](../../docs/GEAR8-20261102.md) is a separate parser patch, also
+applicable directly to bddeb167. Actual parser-to-generated-reader/sampler
+fixture434 checks pass; SDL polling, native SDK build and physical delivery
+remain unverified.
+
 `shiftglue-sdk-cvar-strings.patch` fixes raw quoted strings in all three SDK
 TOML writers: both `SerializeToTOML` overloads and `MergeIntoTOML`, which backs
 `SaveConfig`. It reuses the vendored toml++ 3.4.0 formatter with no literal or
