@@ -22,6 +22,8 @@ millimeters. Eye distance is to the center panel's edge plane, without sagitta
 subtraction. Matrix rows apply as M*v with clip depth[-1,1]; near/far are mm here.
 An explicit offline guest-camera matrix adapter is now checked against the pure
 stock builder; see [projection oracle](../../docs/PROJECTION-ORACLE-20261102.md).
+The existing [native asymmetric API](../../docs/OFFAXIS-API-20261102.md) has a
+different depth contract and unresolved flag behavior; it is not substituted.
 Runtime unit/mode selection, culling and GPU integration are not admitted. Game vertical FOV
 must eventually be supplied by the resolved native camera path, not inferred
 from a prior-frame WVP heuristic.

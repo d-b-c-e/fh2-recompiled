@@ -1,5 +1,9 @@
 # FH2 camera projection oracle and offline adapter
 
+Later [native asymmetric API investigation](OFFAXIS-API-20261102.md) finds a
+separate extent setter/builder with a different depth contract. The adapter
+below remains tied to this symmetric builder's tested reverse-depth convention.
+
 The actual generated camera builder82F46988 and its math-only callee82468C00
 now run in an isolated fixture on synthetic camera/stack memory. This resolves
 the **stored engine camera-matrix convention for the tested input modes**;
