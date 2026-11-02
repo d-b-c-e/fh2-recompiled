@@ -5,6 +5,10 @@ passes fresh native build and built-DLL config/sender/GEAR8 qualification, with
 matching private output staged. No game/device/install or rendered UI claim;
 physical motion/haptic safety remains held. The older pair below is retained.
 
+The pinned SDK commits are local. The [complete source reconstruction route](../docs/SDK-SOURCE-20261102.md)
+uses the public SDK base and a checked cumulative patch; `build.ps1 -SdkRoot`
+can consume that exact source tree without replacing an existing SDK checkout.
+
 The November 2 combined candidate passes the native Windows build and offline
 gear/reverse/telemetry checks. See the [current handoff](../docs/HANDOFF-WINDOWS-20261102.md)
 for its exact app/SDK pair, private payload and remaining runtime gates.
@@ -15,9 +19,9 @@ native build, generated checks and 200 save/load checks through its built DLL.
 The earlier app6c49/SDK499 binary pair is retained separately.
 Agent game/device testing remains held pending the physical output safety route.
 
-Later source follow-up: [Data Out sender live configuration](../docs/TELEMETRY-SENDER-20261102.md)
-passes real production loopback checks with the qualified SDK DLL. It is not yet
-included in the app7ce460f native executable/private payload above.
+[Data Out sender live configuration](../docs/TELEMETRY-SENDER-20261102.md)
+passes production loopback checks with the newly built SDK DLL and is included
+in the latest734/e223 candidate; it is absent from the older7ce/bddeb payload.
 
 Upstream FH2 Recompiled targets Android and Linux. This folder builds the same game for
 **Windows x64** on the [ShiftGlue SDK](https://github.com/arcanite24/shiftglue-sdk), the
@@ -37,7 +41,7 @@ not apply to a desktop GPU.
 | `fh2_manifest.toml` (same inputs, `windows/generated` output) | `overrides*.toml` (function boundaries) |
 | `src/main.cpp`, `fh2_toque.cpp`, `fh2_medidor.cpp` (from the prototype) | `src/fh2_correcoes.cpp`, `fh2_teste_entrada.cpp`, `fh2_captura.cpp` |
 | `rexglue_proto.cmake`, `tools/tabela_registro.py` (from the prototype) | |
-| `thirdparty/shiftglue-sdk` (submodule, local candidate `bddeb167` based on Pinyon Shift 0.6.1's `59bc11f5`; see current handoff for source availability) | |
+| `thirdparty/shiftglue-sdk` (submodule, local candidate `e223de8d` based on Pinyon Shift 0.6.1's `59bc11f5`; see complete source route above) | |
 
 ## Supported disc
 

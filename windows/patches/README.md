@@ -1,5 +1,12 @@
 # SDK string serialization follow-up
 
+Current complete source route: [SDK reconstruction](../../docs/SDK-SOURCE-20261102.md)
+provides one cumulative59bc->e223 patch and an offline fresh-directory helper,
+verified against the exact qualified Git tree without private commit objects.
+This is an alternative to the incremental patches below, not an additional
+patch to apply on top of them. The combined native734/e223 candidate already
+includes preservation, save feedback andGEAR8; live/UI/device gates remain open.
+
 Later [config-preservation follow-up](../../docs/CONFIG-PRESERVATION-20261102.md)
 adds a separate patch on top of bddeb167: parsed source-span edits, malformed
 input refusal, BOM/comment preservation and non-overwriting staging. It passes
