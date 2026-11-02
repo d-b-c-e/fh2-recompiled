@@ -29,7 +29,8 @@ SELECTED = {"sub_823F2FF0", "sub_82F44FB0", "sub_82F44F90", "sub_82F43678",
             "sub_82476B00", "sub_82475C48", "sub_823F59C8", "sub_82470088", "sub_82400E48",
             "sub_82401630", "sub_82473410",
             "sub_82EF12D0", "sub_82450DE8", "sub_8244F4A0", "sub_8244EF48", "sub_8244ED60", "sub_8244EEE8", "sub_8244DFA8", "sub_8244EF08", "sub_824515D8", "sub_82451138", "sub_824513C0", "sub_824827F8", "sub_824501A0", "sub_8244EC00", "sub_8244FA90", "sub_8244FE60",
-            "sub_82451578", "sub_8244FB10", "sub_82EDBE28", "sub_82EE7A10", "sub_8244F570", "sub_82449970", "sub_8241E598", "sub_82F7AC00", "sub_82F7A830", "sub_82446268", "sub_8244BE38", "sub_82479DF0", "sub_824697C8", "sub_82EE8868", "sub_8244FEC0", "sub_82F587F0", "sub_82479CE8", "sub_82480298"}
+            "sub_82451578", "sub_8244FB10", "sub_82EDBE28", "sub_82EE7A10", "sub_8244F570", "sub_82449970", "sub_8241E598", "sub_82F7AC00", "sub_82F7A830", "sub_82446268", "sub_8244BE38", "sub_82479DF0", "sub_824697C8", "sub_82EE8868", "sub_8244FEC0", "sub_82F587F0", "sub_82479CE8", "sub_82480298",
+            "sub_8244BFD8", "sub_82F78BC0", "sub_824463B0", "sub_82445BF0", "sub_82445C78", "sub_82445B18", "sub_82446388", "sub_8245FAE8", "sub_82426E60", "sub_8241CD50", "sub_82DE1B20", "sub_82DE1F30"}
 
 
 def main():
@@ -255,6 +256,33 @@ def main():
     sequence("sub_82479CE8", 13, ['lwz r11,8(r3)', 'lwz r7,-24(r1)', 'cmplw cr6,r7,r11', 'bge cr6,0x82479d80'])
     sequence("sub_82480298", 13, ['lwz r11,8(r3)', 'lwz r7,-24(r1)', 'cmplw cr6,r11,r7', 'bge cr6,0x82480330'])
 
+    sequence("sub_82479DF0", 10, ["cmpwi cr6,r11,32","ble cr6,0x82479ee8"])
+    sequence("sub_824697C8", 10, ["cmpwi cr6,r11,32","ble cr6,0x824698c0"])
+    # Submission tag command and separate cached-vector staging; never executed here.
+    sequence("sub_8244BFD8", 8, ['lbz r10,11068(r3)', 'stw r9,13092(r3)', 'rlwinm. r11,r10,0,28,28', 'bne 0x8244c0c8', 'rlwinm. r11,r10,0,29,29', 'bne 0x8244c0c8', 'lbz r11,12563(r3)', 'cmplwi r11,0', 'bne 0x8244c0c8', 'rlwinm. r11,r10,0,27,27'])
+    sequence("sub_8244BFD8", 61, ['rlwimi r10,r11,0,31,31', 'li r11,-1', 'stb r10,11068(r31)', 'stw r11,13084(r31)', 'b 0x8244c0f8', 'lbz r11,11068(r31)', 'li r10,1', 'stw r4,13084(r31)', 'rlwinm r11,r11,0,0,30', 'stw r10,13092(r31)', 'stb r11,11068(r31)', 'lwz r11,56(r31)', 'lwz r3,48(r31)', 'stw r9,13088(r31)', 'stw r4,11060(r31)', 'cmplw cr6,r3,r11', 'stw r9,11064(r31)'])
+    sequence("sub_8244BFD8", 79, ['mr r3,r31', 'bl 0x8241cd50', 'lis r11,-16384', 'ori r11,r11,24576', 'stwu r11,4(r3)', 'lwz r11,13084(r31)', 'stwu r11,4(r3)', 'stw r3,48(r31)'])
+    sequence("sub_82F78BC0", 44, ['lis r11,-31934', 'lwz r3,8124(r11)', 'bl 0x82446388', 'lwz r30,4(r25)', 'mr r27,r3', 'addi r3,r1,320', 'stw r30,112(r1)', 'bl 0x82449678', 'addi r6,r31,64', 'lvx128 v59,r0,r31', 'li r9,16', 'lwz r11,16(r20)'])
+    sequence("sub_82F78BC0", 258, ['addis r17,r14,1', 'lis r10,-32037', 'addi r17,r17,-5744', 'addi r7,r1,120', 'addi r6,r10,-18056', 'addi r5,r1,320', 'mr r4,r25', 'mr r3,r17', 'bl 0x82de1b20'])
+    sequence("sub_82F78BC0", 549, ['addi r8,r1,688', 'addi r7,r1,240', 'mr r6,r29', 'mr r5,r23', 'mr r4,r25', 'mr r3,r17', 'bl 0x82de1f30'])
+    sequence("sub_82F78BC0", 579, ['mr r3,r17', 'bl 0x82de1cf0', 'addis r3,r14,1', 'addi r3,r3,-5744', 'bl 0x82692020'])
+    sequence("sub_824463B0", 46, ['mulli r11,r24,3', 'lwz r10,40(r19)', 'lwz r9,4(r19)', 'stw r9,116(r1)', 'add r28,r11,r26', 'addis r25,r29,1', 'rlwinm r11,r28,2,0,29', 'stw r28,112(r1)', 'addi r25,r25,-5744', 'mr r3,r25', 'stw r25,84(r1)', 'lwzx r4,r11,r10', 'bl 0x82449668'])
+    sequence("sub_824463B0", 209, ['mr r4,r19', 'stvx128 v13,r0,r23', 'mr r3,r25', 'stvx128 v0,r0,r22', 'lvx128 v63,r11,r9', 'stvx128 v63,r0,r21', 'lwz r11,56(r27)', 'and r11,r28,r11', 'addic r10,r11,-1', 'subfe r11,r10,r11', 'clrlwi r31,r11,24', 'cntlzw r11,r31', 'rlwinm r6,r11,27,31,31', 'bl 0x82445bf0'])
+    sequence("sub_824463B0", 442, ['addi r7,r1,512', 'lwz r3,84(r1)', 'mr r6,r25', 'mr r5,r26', 'mr r4,r19', 'bl 0x8245fae8'])
+    sequence("sub_824463B0", 672, ['lwz r25,84(r1)', 'clrlwi. r11,r24,24', 'addi r21,r21,1', 'beq 0x82446c6c', 'mr r3,r25', 'bl 0x82426e60'])
+    sequence("sub_82445BF0", 5, ['clrlwi r11,r6,24', 'mr r31,r3', 'lwz r3,1212(r3)', 'cntlzw r10,r11', 'li r11,0', 'rlwinm r10,r10,27,31,31', 'li r7,0', 'stw r11,1220(r31)', 'li r6,21', 'stb r11,1229(r31)', 'oris r7,r7,64512', 'stb r10,1228(r31)', 'li r4,128', 'stb r11,1230(r31)', 'mr r30,r5', 'bl 0x82445c78', 'li r7,0', 'li r6,21', 'lwz r3,1212(r31)', 'oris r7,r7,64512', 'mr r5,r30', 'li r4,128', 'bl 0x82445b18'])
+    sequence("sub_82445C78", 0, ['addi r10,r4,120', 'mr r11,r5', 'rlwinm r10,r10,4,0,27', 'mr r9,r6', 'add r10,r10,r3'])
+    sequence("sub_82445C78", 43, ['lvlx128 v63,r0,r11', 'lvrx128 v62,r5,r11', 'addi r11,r11,16', 'vor128 v63,v63,v62', 'stvx128 v63,r0,r10', 'addi r10,r10,16', 'bdnz 0x82445d24', 'ld r11,0(r3)', 'or r11,r11,r7', 'std r11,0(r3)', 'blr '])
+    sequence("sub_82445B18", 0, ['addi r10,r4,376', 'mr r11,r5', 'rlwinm r10,r10,4,0,27', 'mr r9,r6', 'add r10,r10,r3'])
+    sequence("sub_82445B18", 43, ['lvlx128 v63,r0,r11', 'lvrx128 v62,r5,r11', 'addi r11,r11,16', 'vor128 v63,v63,v62', 'stvx128 v63,r0,r10', 'addi r10,r10,16', 'bdnz 0x82445bc4', 'ld r11,8(r3)', 'or r11,r7,r11', 'std r11,8(r3)', 'blr '])
+    sequence("sub_82446388", 0, ['lwz r11,0(r13)', 'li r10,8', 'lbzx r11,r10,r11', 'cmplwi r11,0', 'beq 0x824463a4', 'lwz r11,9316(r3)', 'b 0x824463a8', 'lwz r11,9312(r3)', 'lwz r3,20(r11)', 'blr '])
+    sequence("sub_8245FAE8", 19, ['lbz r11,1229(r31)', 'cmplwi r11,0', 'bne 0x8245fb54', 'stb r10,1229(r31)', 'mr r4,r30', 'mr r3,r31', 'bl 0x8247e3b0', 'b 0x8245fb64', 'lbz r11,0(r30)', 'cmplwi r11,0', 'beq 0x8245fb64', 'stb r10,1(r30)', 'mr r4,r30', 'mr r3,r31', 'bl 0x8246c1e0', 'mr r4,r30', 'mr r3,r31', 'bl 0x8246b5b0', 'mr r4,r30', 'mr r3,r31', 'bl 0x8246b2b8', 'lwz r11,1224(r31)', 'addi r11,r11,1', 'stw r11,1224(r31)'])
+    sequence("sub_82426E60", 4, ['lbz r11,1228(r3)', 'mr r31,r3', 'li r3,0', 'cmplwi r11,0', 'beq 0x82426ec0', 'lbz r11,1230(r31)', 'cmplwi r11,0', 'beq 0x82426ea4', 'li r4,0', 'lwz r3,1216(r31)', 'bl 0x8247e370', 'li r11,0', 'stb r11,1230(r31)', 'lwz r10,1216(r31)', 'lis r11,-31934', 'li r5,0', 'lwz r3,8124(r11)', 'lwz r4,0(r10)', 'bl 0x824265f8'])
+    sequence("sub_8241CD50", 48, ['lwz r11,11036(r31)', 'li r7,0', 'li r6,0', 'li r5,0', 'addi r4,r11,-2', 'mr r3,r31', 'bl 0x823f94d0', 'lbz r11,11069(r31)', 'ori r11,r11,2', 'stb r11,11069(r31)', 'lwz r3,48(r31)'])
+    sequence("sub_82DE1B20", 14, ['li r7,0', 'li r6,4', 'lwz r3,1212(r30)', 'oris r7,r7,32768', 'mr r5,r31', 'li r4,128', 'bl 0x82445c78', 'li r7,0', 'li r6,4', 'lwz r3,1212(r30)', 'oris r7,r7,32768', 'mr r5,r31', 'li r4,128', 'bl 0x82445b18'])
+    sequence("sub_82DE1B20", 80, ['addi r11,r31,320', 'lfs f0,320(r31)', 'lwz r11,1212(r30)', 'stfs f0,4288(r11)', 'lfs f0,324(r31)', 'stfs f0,4292(r11)', 'lfs f0,328(r31)', 'stfs f0,4296(r11)', 'lfs f0,332(r31)', 'stfs f0,4300(r11)', 'ld r10,0(r11)', 'oris r10,r10,1024', 'std r10,0(r11)', 'lfs f0,320(r31)', 'lwz r11,1212(r30)', 'stfs f0,8384(r11)', 'lfs f0,324(r31)', 'stfs f0,8388(r11)', 'lfs f0,328(r31)', 'stfs f0,8392(r11)', 'lfs f0,332(r31)', 'stfs f0,8396(r11)', 'ld r10,8(r11)', 'oris r10,r10,1024', 'std r10,8(r11)'])
+    sequence("sub_82DE1F30", 142, ['li r7,3', 'lwz r3,1212(r29)', 'li r6,8', 'rldicr r7,r7,32,31', 'addi r5,r1,112', 'li r4,120', 'bl 0x82445b18', 'lwz r4,96(r26)', 'lwz r3,1212(r29)', 'bl 0x8245cdf0', 'li r6,0', 'lwz r7,100(r26)', 'li r5,0', 'lwz r4,36(r26)', 'lwz r3,1212(r29)', 'bl 0x82426180'])
+
     def word(address):
         return struct.unpack_from(">I", raw, address-0x82000000)[0]
 
@@ -360,6 +388,19 @@ def main():
                                      "singlePlaneTags":[8,0,2],"twoPlaneTags":[[32,40,8],[32,0,10],[2,2,2]],
                                      "tagClassOrder":["inside","crossing","outside"],"parentRejectWritesTag":False,
                                      "gpuProjectionDeliveryEstablished":False,"submissionExecuted":False},
+              "submissionStateTrace":{"tagWriter":"8244BFD8","commandHeader":"C0006000",
+                                      "commandCursorOffset":48,"commandLimitOffset":56,"refill":"8241CD50",
+                                      "currentTagOffset":13084,"tagEnabledOffset":13092,"zeroTagCommandValue":"FFFFFFFF",
+                                      "commonFields":{"13088":0,"11060":"incoming tag","11064":0},
+                                      "graphicsContextSelector":"82446388: TLS byte8 selects9312/9316, then field20",
+                                      "primarySinks":["82F78BC0","824463B0"],"rendererScratchOffset":59792,
+                                      "scratchContextPointerOffset":1212,"stagingVectorIndex":128,"stagingVectorCount":21,
+                                      "stageCopies":{"82445C78":"(index+120)*16; dirty qword0","82445B18":"(index+376)*16; dirty qword8"},
+                                      "stagingRanges":[[3968,4304],[8064,8400]],"stageDirtyMask":"00000000FC000000",
+                                      "stagingSource":"five four-vector blocks plus tail vector; matrix products in sinks",
+                                      "laterCallers":{"824463B0":["8245FAE8","82426E60"],"82F78BC0":["82DE1B20","82DE1F30"]},
+                                      "virtual164ConcreteReceiverEstablished":False,"gpuProjectionDeliveryEstablished":False,
+                                      "stateEmitterExecuted":False,"stagingExecuted":False,"submissionExecuted":False},
               "kind1ExtentProducerEstablished":False, "cullingAdmitted":False,
               "sourceBackedControl":{"producer":"82F50780", "kind":2,
                                      "storedExtents":[-4,4,4,-4], "near":values[0x8224FA5C],"far":7.5},
