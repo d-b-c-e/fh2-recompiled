@@ -14,7 +14,10 @@ import struct
 IMAGE_SHA = "3708A857A4EEC4BC673DF3CD0F00D304702E67B7A5570B9D34C1803CA2102244"
 SELECTED = {"sub_823F2FF0", "sub_82F44FB0", "sub_82F44F90", "sub_82F43678",
             "sub_82408998", "sub_82E431E0", "sub_82F50780", "sub_823F2568",
-            "sub_82F46838", "sub_82F5BE50", "sub_82F435E8", "sub_82F44BB0", "sub_82F44B98"}
+            "sub_82F46838", "sub_82F5BE50", "sub_82F435E8", "sub_82F44BB0", "sub_82F44B98",
+            "sub_8293D7F0", "sub_8293F718", "sub_82931940", "sub_8292F400",
+            "sub_83237BD8", "sub_83237BB0", "sub_83237D50", "sub_83237C40", "sub_83237DA0",
+            "sub_82D3BF80", "sub_82D3B430", "sub_82D48C60", "sub_82D371F0"}
 
 
 def main():
@@ -84,6 +87,47 @@ def main():
     sequence("sub_82F435E8", 0, ["li r11,1", "stw r4,8(r3)", "stb r11,480(r3)", "blr "])
     sequence("sub_82F44B98", 0, ["lwz r11,0(r3)", "lwz r4,4(r4)", "lwz r11,32(r11)", "mtctr r11", "bctr "])
     sequence("sub_82F44BB0", 13, ["stw r30,4(r3)"])
+    # Receiver identity: this list's owning subobject is ForzaUI, and its
+    # population helper casts UI controls before appending their pointers.
+    sequence("sub_8293F718", 22, ["addi r9,r6,26404", "addi r11,r5,26388", "stw r10,32(r31)", "li r30,0", "stw r9,108(r31)"])
+    sequence("sub_8293D7F0", 27, ["lwz r11,196(r30)", "addi r29,r30,196", "lwz r10,200(r30)"])
+    sequence("sub_82931940", 23, ["addi r11,r11,-26688", "addi r4,r10,-24468", "stw r11,80(r1)", "addi r5,r1,80", "mr r3,r31", "bl 0x83002ab8", "addi r29,r31,304", "addi r3,r1,80", "mr r4,r29", "bl 0x8292f400"])
+    sequence("sub_8292F400", 15, ["lis r10,-31944", "lis r11,-31944", "addi r30,r10,-11796", "addi r29,r11,-11128", "mr r6,r29", "lwz r3,0(r31)", "mr r5,r30", "li r7,0", "li r4,0", "bl 0x823f4828"])
+    sequence("sub_8292F400", 25, ["stw r3,80(r1)", "cmplwi r3,0", "beq 0x8292f47c", "addi r4,r1,80", "mr r3,r28", "bl 0x82735e38"])
+    # These two primary tables share AddRef/Release and have deleting
+    # destructors at slot32; they are not presentation-camera tables.
+    sequence("sub_83237BB0", 0, ["addi r11,r3,40", "mfmsr r9", "mtmsrd r13,1", "lwarx r10,0,r11", "addi r10,r10,1"])
+    sequence("sub_83237BD8", 0, ["addi r11,r3,40", "mfmsr r9", "mtmsrd r13,1", "lwarx r10,0,r11", "addi r10,r10,-1"])
+    sequence("sub_83237BD8", 13, ["lwz r11,0(r3)", "li r4,1", "lwz r10,32(r11)", "mtctr r10", "bctr "])
+    sequence("sub_83237D50", 8, ["addi r9,r11,23428", "addi r8,r10,23388", "li r7,0", "stw r9,0(r31)", "stw r8,4(r31)", "mr r3,r31", "stw r7,40(r31)"])
+    for name in ("sub_83237C40", "sub_83237DA0"):
+        sequence(name, 11, ["lwz r7,28(r3)", "addi r31,r3,8", "cmplwi cr6,r7,16"])
+    sequence("sub_82D3B430", 4, ["lis r11,-32235", "mr r31,r3", "addi r11,r11,-28364"])
+    sequence("sub_82D3BF80", 15, ["lis r11,-31911", "mr r8,r27", "mr r7,r28", "mr r6,r29", "mr r5,r30", "stw r3,-29684(r11)"])
+    sequence("sub_82D48C60", 11, ["lwz r4,-29684(r28)", "addi r30,r31,4024", "lwz r11,0(r4)", "lwz r11,32(r11)", "mtctr r11", "bctrl ", "mr r4,r3", "mr r3,r30", "bl 0x82da57f0"])
+    sequence("sub_82D371F0", 47, ["addi r10,r10,-31012"])
+    sequence("sub_82D371F0", 53, ["stw r10,0(r3)"])
+    sequence("sub_82D371F0", 97, ["addi r11,r11,-30268", "stw r11,0(r3)"])
+
+    def word(address):
+        return struct.unpack_from(">I", raw, address-0x82000000)[0]
+
+    def cstring(address):
+        start = address-0x82000000
+        return raw[start:raw.index(0,start)].decode("ascii")
+
+    def table_type(table):
+        return cstring(word(word(table-4)+12)+8)
+
+    expect(table_type(0x82086724) == ".?AVCAnimatedScrollingListCtrl@ForzaUI@@", "List owner RTTI changed")
+    expect(word(word(0x82086720)+4) == 108 and word(0x82086724+40) == 0x8293D7F0, "List subobject changed")
+    expect(cstring(0x8337D1EC+8) == ".?AVCUI4Control@@" and cstring(0x8337D488+8) == ".?AVCUIContainerItemCtrl@@", "List cast types changed")
+    expect(cstring(0x8203A06C) == "GROUP_ITEMS", "List property changed")
+    for table, destructor in ((0x822C5B60,0x83237C40),(0x822C5B84,0x83237DA0)):
+        expect(word(table) == 0x83237BB0 and word(table+4) == 0x83237BD8 and word(table+32) == destructor, "Refcounted string table changed")
+    expect(table_type(0x82149134) == ".?AVCAudioEngine@@" and word(0x82149134+32) == 0x82D371F0, "Audio engine factory changed")
+    expect(table_type(0x821486DC) == ".?AV?$TRefCountedObject@VCAudioEmission@@@@", "Audio emission type changed")
+    expect(table_type(0x821489C4) == ".?AV?$TRefCountedObject@VCDummyAudioEmission@@@@", "Dummy audio emission type changed")
     values = {0x8209282C:-4., 0x82004ABC:4., 0x8224FA5C:.10000000149011612, 0x8224FA60:7.5}
     for address, value in values.items():
         expect(struct.unpack_from(">f", raw, address-0x82000000)[0] == value, "Producer constant changed")
@@ -99,6 +143,10 @@ def main():
               "slot76FloatCandidates":sorted(extents), "slot48ModeCandidates":sorted(modes),
               "candidateIntersection":sorted(extents & modes),
               "slot32KindOneCandidates":kind32_candidates,
+              "identifiedNonCameraCandidates":{"sub_8293D7F0":"CUIContainerItemCtrl list in ForzaUI CAnimatedScrollingListCtrl",
+                                               "sub_83237BD8":"refcounted small-string Release to deleting destructor",
+                                               "sub_82D4CB20":"CAudioEmission or CDummyAudioEmission"},
+              "remainingUnclassifiedSlot32Sites":{k:v for k,v in kind32_candidates.items() if k not in ("sub_8293D7F0","sub_83237BD8","sub_82D4CB20")},
               "kind1ExtentProducerEstablished":False, "cullingAdmitted":False,
               "sourceBackedControl":{"producer":"82F50780", "kind":2,
                                      "storedExtents":[-4,4,4,-4], "near":values[0x8224FA5C],"far":7.5},
