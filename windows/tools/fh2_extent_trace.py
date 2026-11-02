@@ -31,7 +31,7 @@ SELECTED = {"sub_823F2FF0", "sub_82F44FB0", "sub_82F44F90", "sub_82F43678",
             "sub_82EF12D0", "sub_82450DE8", "sub_8244F4A0", "sub_8244EF48", "sub_8244ED60", "sub_8244EEE8", "sub_8244DFA8", "sub_8244EF08", "sub_824515D8", "sub_82451138", "sub_824513C0", "sub_824827F8", "sub_824501A0", "sub_8244EC00", "sub_8244FA90", "sub_8244FE60",
             "sub_82451578", "sub_8244FB10", "sub_82EDBE28", "sub_82EE7A10", "sub_8244F570", "sub_82449970", "sub_8241E598", "sub_82F7AC00", "sub_82F7A830", "sub_82446268", "sub_8244BE38", "sub_82479DF0", "sub_824697C8", "sub_82EE8868", "sub_8244FEC0", "sub_82F587F0", "sub_82479CE8", "sub_82480298",
             "sub_8244BFD8", "sub_82F78BC0", "sub_824463B0", "sub_82445BF0", "sub_82445C78", "sub_82445B18", "sub_82446388", "sub_8245FAE8", "sub_82426E60", "sub_8241CD50", "sub_82DE1B20", "sub_82DE1F30",
-            "sub_82426180", "sub_824265F8", "sub_824266B0", "sub_82426800", "sub_8244F418", "sub_8244DFC8", "sub_8244EBD8", "sub_82D35E18", "sub_82EE4578", "sub_82DA57F0", "sub_8244CC30", "sub_8244BDF0", "sub_824517A0"}
+            "sub_82426180", "sub_824265F8", "sub_824266B0", "sub_82426800", "sub_8244F418", "sub_8244DFC8", "sub_8244EBD8", "sub_82D35E18", "sub_82EE4578", "sub_82DA57F0", "sub_8244CC30", "sub_8244BDF0", "sub_824517A0", "sub_82477138"}
 
 
 def main():
@@ -57,7 +57,7 @@ def main():
                 if name in selected:
                     raise ValueError("Duplicate selected function")
                 selected[name] = (body, comments)
-            for target in ("sub_823F2FF0", "sub_82F43678", "sub_82E431E0", "sub_82F5BE50", "sub_82F435E8", "sub_82F44BB0", "sub_82F46060", "sub_82451578", "sub_8244FB10", "sub_82EDBE28", "sub_82EE7A10"):
+            for target in ("sub_823F2FF0", "sub_82F43678", "sub_82E431E0", "sub_82F5BE50", "sub_82F435E8", "sub_82F44BB0", "sub_82F46060", "sub_82451578", "sub_8244FB10", "sub_82EDBE28", "sub_82EE7A10", "sub_82477138"):
                 if f"{target}(ctx, base);" in body or f"REX_TAIL_CALL({target})" in body:
                     direct.setdefault(target, []).append(name)
             offsets = sorted({int(v) for v in re.findall(r"\t// stfs f\d+,(240|244|248|252)\(r(?:3|31)\)", body)})
@@ -314,6 +314,11 @@ def main():
                  for bank,registers in ((1920,16384),(6016,17408))]
     expect(leading == 32 and groups == 6 and [v["header"] for v in bank_runs] == ["005F4200","005F4600"], "Derived dirty-run header changed")
 
+    # Capacity fallback writes bounded word chunks and refills between them.
+    sequence("sub_82477138", 10, ['subf r11,r4,r11', 'srawi r11,r11,2', 'addi r11,r11,-1', 'rotlwi r10,r11,1', 'divw. r11,r11,r30'])
+    sequence("sub_82477138", 23, ['addi r10,r11,-1', 'subf r31,r11,r31', 'rlwinm r10,r10,16,0,15', 'cmplwi cr6,r11,0', 'or r10,r10,r28', 'stwu r10,4(r4)'])
+    sequence("sub_82477138", 37, ['stw r4,48(r29)', 'mr r3,r29', 'bl 0x8241cd50', 'lwz r4,48(r29)', 'b 0x82477158'])
+
     def word(address):
         return struct.unpack_from(">I", raw, address-0x82000000)[0]
 
@@ -440,7 +445,12 @@ def main():
                                          "bankByteOffsets":[1920,6016],"encodedWordBases":[16384,17408],
                                          "dirtyBitVectors":4,"dirtyBitBytes":64,"dirtyRunsForFC000000":bank_runs,
                                          "preservedTailVectorsAfter21VectorWrite":3,"fastPathPaddingWord":"80000000",
-                                         "capacityFallback":"82477138","consumerExecuted":False,"gpuProjectionIdentityEstablished":False},
+                                         "capacityFallback":"82477138",
+                                         "fallbackContract":{"limitOffset":52,"cursorOffset":48,"source":"r6 points before first word",
+                                                             "chunkWords":"min(remaining,floor((((limit-cursor)>>2)-1)/stride)*stride) when rounded capacity positive; otherwise refill",
+                                                             "callerStrideWords":16,"header":"((chunkWords-1)<<16)|encodedDestination",
+                                                             "advance":"source4*chunkWords,destinationchunkWords","refill":"8241CD50",
+                                                             "return":"last-word cursor in r3","executed":False},"consumerExecuted":False,"gpuProjectionIdentityEstablished":False},
               "instanceReceiverTrace":{"resolver":"8244F418: cached8, cached4 or resource16 through8244DFC8",
                                        "referencePath":"82D35E18 validates8244CC30 then82DA57F0 acquires virtual8/releases virtual12",
                                        "resourceBodyPointerOffset":128,"instanceBacklinkOffset":120,

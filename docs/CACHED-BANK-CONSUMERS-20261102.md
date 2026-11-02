@@ -7,7 +7,7 @@ six groups, so a full eligible run uploads **24 vectors**, including three
 preserved cached vectors. This is source evidence, not an executed upload or
 proof of which vector block is the GPU projection. **CULLING HOLD remains.**
 
-288 static checks pass across 85,237 functions, with 126 selected source hashes.
+291 static checks pass across 85,237 functions, with 127 selected source hashes.
 A closed 40-function fixture passes **5,184 new staging checks / 9,037 combined**,
 retaining the original 12 projection/plane disagreements and 12 ordinary kind-1
 AABB rejections. The tool still exits 2. No production/native/SDK changes occur.
@@ -47,9 +47,32 @@ header = ((16*G - 1) << 16) | (encoded_base + 16*first_group)
 ```
 
 The cursor points to the last written word and is stored at context+48.
-When capacity is insufficient the helper calls `82477138`; that fallback's
-implementation is a separate trace boundary. No bank writer or fallback runs
-in the fixture.
+When capacity is insufficient the helper calls `82477138`. The following
+source-only continuation establishes its chunk/refill contract. No bank writer
+or fallback runs in the fixture.
+
+`82477138` receives the current cursor, encoded word destination, a source
+pointer immediately before its first word, remaining word count and stride.
+This bank caller supplies stride 16 words. It reserves one header word and
+rounds available data capacity down to a whole stride:
+
+```text
+available_words = ((limit52 - cursor) >> 2) - 1
+rounded_words = floor(available_words / stride) * stride
+chunk_words = min(remaining_words, rounded_words)  // positive capacity only
+```
+
+With positive rounded capacity it writes `((chunk_words-1)<<16)|destination`,
+then copies that many words through big-endian load/store operations. It
+advances source by 4*chunk_words and encoded destination by chunk_words. When
+words remain, or capacity is not positive, it stores cursor+48, calls
+`8241CD50`, reloads the cursor and continues. Finally it returns the last-word
+cursor in r3. It does not assume the direct writer's vector-store alignment.
+
+This fallback is also called by `82425CA8`, `82425B50` and `8247EF20`, so its
+identity does not establish a particular shader stage. Refill can synchronize
+or change buffers, and the loop has no independent replay/liveness admission.
+It remains excluded from the closed staging-copy fixture.
 
 For the prior dirty mask `00000000FC000000`, leading groups=32 and run groups=6:
 
@@ -129,6 +152,7 @@ Private root: `windows/.local/cached-bank-consumers/`.
 
 | Evidence | SHA256 |
 | --- | --- |
+| fallback-static03/result.json, current 291 checks | 2EA0FD5DD7497A0623D498CDA35D3123A2EB55F0EE1072DBDE20163697994EC0 |
 | static02/result.json | BA392023A4306C8ED93915E4805CDCDDAB0D5A02C489FE156201567EB6EFF5AD |
 | runtime01/result.json | A4DA90FA8B446ECBF15249470A5BEA57203D5DF72CD86B97208F8286C55C49D3 |
 | runtime01/staging-summary.json | 0E138210F98DA4D739D82AEC796EAE34748717235284DDD9A6F7BA92C482C7F4 |
@@ -143,6 +167,12 @@ generated bodies, executable, candidate scans and receipts remain local.
 No recursive sort/guest allocator/bank consumer/command emitter/submission/
 dispatcher/worker/scene/SDK DLL/game/window/GPU/audio/input/device/init/install/
 owner-state work occurred. Native 734fff4 / SDK e223de8d remain frozen.
-Next source: writer capacity fallback `82477138` and resource body population
-through the virtual-68 path, retaining GPU projection and concrete virtual-164
-identity as separate gates. No guessed field swaps, bypass or renderer hook.
+The fallback continuation adds three static guards; the prior 9,037 runtime
+checks are retained without rerunning or extending them. Current static receipt
+is recorded in the handoff. It also corrects three stale `83598C0C` spellings
+in the older triple-scene design to the established audio singleton `83588C0C`;
+the audio exclusion is unchanged.
+
+Next source: resource body population through virtual slot 68 and concrete
+virtual-164 receiver identity, separate from GPU projection. No guessed field
+swaps, bypass or renderer hook.
