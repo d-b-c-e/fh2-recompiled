@@ -13,7 +13,7 @@ import struct
 import subprocess
 
 IMAGE_SHA = "3708A857A4EEC4BC673DF3CD0F00D304702E67B7A5570B9D34C1803CA2102244"
-ROOTS = {"sub_82408998", "sub_82F46988", "sub_82F43678", "sub_823F2FF0", "sub_82F43618", "sub_823F5920", "sub_824153F8"}
+ROOTS = {"sub_82408998", "sub_82F46988", "sub_82F43678", "sub_823F2FF0", "sub_82F43618", "sub_823F5920", "sub_824153F8", "sub_823F2568", "sub_823F1D80"}
 ALLOWED = ROOTS | {"sub_82C023A0", "sub_82E43690", "sub_82E431E0", "sub_823FB1B0", "sub_82402C80", "sub_82422D80",
                    "sub_82C009E0", "sub_82468C00", "sub_82487C30", "sub_8240EA50", "sub_82401038",
                    "__savegprlr_23", "__savegprlr_22", "__restgprlr_22", "__restgprlr_23",
@@ -93,6 +93,17 @@ int main(int argc,char** argv){
   std::printf("%s{\"fixedFp\":%s,\"flag272\":%d,\"near\":%.9g,\"far\":%.9g,\"fov\":%.9g,\"aspect\":%.9g,\"symmetricPositiveZInside\":%s,\"symmetricNegativeZInside\":%s,\"point\":[%.9g,0,%.9g],\"projectedInside\":%s,\"planesInside\":%s,\"planes\":[",first?"":",",fixed?"true":"false",flag,p.n,p.f,p.fov,p.aspect,symForward?"true":"false",symBackward?"true":"false",x,z,projectedInside?"true":"false",planesInside?"true":"false");
   for(int i=0;i<24;++i){if(!std::isfinite(planeValues[i]))return 11;std::printf("%s%.9g",i?",":"",planeValues[i]);}std::printf("]}");first=false;
  }
+ // The only source-backed extent producer found selects kind2, not kind1.
+ std::printf("],\"orthographicControls\":[");first=true;
+ for(bool fixed:{false,true}){
+  rex::ppc::g_fixed_fp_mode.store(fixed);Init(.1f,7.5f,90,1,0);
+  auto c=Context();c.f1.f64=-4;c.f2.f64=4;c.f3.f64=4;c.f4.f64=-4;sub_823F2FF0(c,memory);
+  c.r3.u32=camera;c.r4.u32=0;sub_823F2568(c,memory);
+  Check(Word(camera+8)==2&&memory[camera+480]==1,"source-backed orthographic kind/dirty");
+  Consume();const bool center=Inside(0,0,3.8f),left=Inside(-5,0,3.8f),right=Inside(5,0,3.8f),behind=Inside(0,0,-1),beyond=Inside(0,0,8);
+  // Report observed containment; retain the kind1 HOLD independently.
+  std::printf("%s{\"fixedFp\":%s,\"centerInside\":%s,\"leftOutsideRejected\":%s,\"rightOutsideRejected\":%s,\"behindRejected\":%s,\"beyondRejected\":%s}",first?"":",",fixed?"true":"false",center?"true":"false",!left?"true":"false",!right?"true":"false",!behind?"true":"false",!beyond?"true":"false");first=false;
+ }
  std::printf("],\"checks\":%d,\"projectionPlaneDisagreements\":%d,\"baselineMissingInterior\":%d}\n",checks,mismatches,baselineMissing);VirtualFree(memory,0,MEM_RELEASE);return 0;
 }
 '''
@@ -148,7 +159,7 @@ def main():
     (out / "run.log").write_text(result.stdout+result.stderr)
     result.check_returncode()
     record = json.loads(result.stdout)
-    if len(record["cases"]) != 12:
+    if len(record["cases"]) != 12 or len(record["orthographicControls"]) != 2:
         raise ValueError("Incomplete survival cases")
     hold = bool(record["projectionPlaneDisagreements"] or record["baselineMissingInterior"])
     record.update({"status": "hold-culling-contract" if hold else "pass", "orderingChecksPassed": True,

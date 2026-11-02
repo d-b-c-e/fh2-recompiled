@@ -1,5 +1,10 @@
 # After the symmetric overwrite: surviving point found, culling still held
 
+Follow-up: [extent producer/constructor trace](EXTENT-CONTRACT-20261102.md)
+adds a source-backed kind-2 control, 28 linked functions and 368 passing
+ordering/cache assertions. Culling remains held. The 26-function/360-check
+results below describe the retained original run.
+
 `82F46BAC` is immediately after the symmetric builder's final camera write and
 before its register/stack epilogue. A later asymmetric update survives the
 subsequent native lazy-cache rebuild in the offline fixture. **This is not yet
