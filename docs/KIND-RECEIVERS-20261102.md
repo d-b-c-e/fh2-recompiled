@@ -1,5 +1,9 @@
 # Constant-1 slot-32 receiver identities
 
+Follow-up: [remaining interface identities and camera factory route](KIND-INTERFACES-20261102.md)
+resolves all seven bounded constant-1 sites as non-camera calls. The latest
+static trace passes 108 checks; actual camera kind-1 selection stays unresolved.
+
 The two named targets are **not camera kind selectors**: `8293D7F0` operates
 on UI container items, and `83237BD8` releases a reference-counted small-string
 object. The next offline candidate, `82D4CB20`, resolves to audio emissions.

@@ -17,7 +17,11 @@ SELECTED = {"sub_823F2FF0", "sub_82F44FB0", "sub_82F44F90", "sub_82F43678",
             "sub_82F46838", "sub_82F5BE50", "sub_82F435E8", "sub_82F44BB0", "sub_82F44B98",
             "sub_8293D7F0", "sub_8293F718", "sub_82931940", "sub_8292F400",
             "sub_83237BD8", "sub_83237BB0", "sub_83237D50", "sub_83237C40", "sub_83237DA0",
-            "sub_82D3BF80", "sub_82D3B430", "sub_82D48C60", "sub_82D371F0"}
+            "sub_82D3BF80", "sub_82D3B430", "sub_82D48C60", "sub_82D371F0",
+            "sub_831CA678", "sub_831CB908", "sub_831CA938", "sub_831CB410",
+            "sub_831349B8", "sub_83148EA8", "sub_82F5A2C8", "sub_82F5BEE0",
+            "sub_82F59C88", "sub_82FFB710", "sub_823F46D8", "sub_823F3050",
+            "sub_82473418", "sub_82471158", "sub_82F4F1D0"}
 
 
 def main():
@@ -108,6 +112,34 @@ def main():
     sequence("sub_82D371F0", 47, ["addi r10,r10,-31012"])
     sequence("sub_82D371F0", 53, ["stw r10,0(r3)"])
     sequence("sub_82D371F0", 97, ["addi r11,r11,-30268", "stw r11,0(r3)"])
+    for name, member, parameters in (("sub_831CA678",256,260),("sub_831CB908",8,12)):
+        sequence(name, 7, ["lis r10,-32239", "mr r30,r3", f"addi r5,r3,{member}", "addi r4,r10,-15536", "lwz r11,0(r11)", "mr r3,r31", "mtctr r11", "bctrl "])
+        sequence(name, 19, [f"addi r5,r30,{parameters}", "addi r4,r10,-5376"])
+    sequence("sub_831CA938", 60, ["rotlwi r3,r11,0", "addi r7,r1,112", "li r6,1", "addi r5,r1,96", "li r4,1", "lwz r11,0(r3)", "lwz r11,32(r11)", "mtctr r11", "bctrl "])
+    sequence("sub_831CA938", 81, ["rotlwi r3,r11,0", "addi r7,r1,96", "li r6,1", "addi r5,r1,104", "li r4,1", "lwz r11,0(r3)", "lwz r11,32(r11)", "mtctr r11", "bctrl "])
+    sequence("sub_831CB410", 43, ["lwz r3,256(r31)", "lwz r11,0(r3)", "addi r7,r1,96", "li r6,1", "addi r5,r1,104", "li r4,1", "lwz r11,32(r11)", "mtctr r11", "bctrl "])
+    # sqlite3_vfs.xOpen fills the sqlite3_file at pager+56. Its method table
+    # has an iVersion word, so byte32 is xUnlock, not a C++ camera method.
+    sequence("sub_83148EA8", 97, ["addi r11,r3,176", "mr r31,r3", "stw r11,168(r3)", "addi r11,r11,48", "cmplwi cr6,r29,0", "stw r11,56(r3)"])
+    sequence("sub_83148EA8", 145, ["stw r23,84(r1)", "addi r7,r1,84", "lwz r11,24(r30)", "andi. r6,r25,32543", "mr r3,r30", "mtctr r11", "lwz r5,56(r31)", "lwz r4,132(r31)", "bctrl "])
+    sequence("sub_831349B8", 20, ["lwz r3,56(r31)", "addi r4,r1,88", "lwz r11,0(r3)", "lwz r11,36(r11)", "mtctr r11", "bctrl "])
+    sequence("sub_831349B8", 47, ["lwz r3,56(r31)", "li r4,2", "lwz r11,0(r3)", "lwz r11,28(r11)", "mtctr r11", "bctrl "])
+    sequence("sub_831349B8", 61, ["lwz r3,56(r31)", "li r4,1", "lwz r11,0(r3)", "lwz r11,32(r11)", "mtctr r11", "bctrl "])
+    # Receiver-backed route for future camera searches: a typed presentation
+    # creates/registers cameras; slot60 removes one from this same registry.
+    sequence("sub_82F5A2C8", 114, ["mr r3,r31", "bl 0x82f50780"])
+    sequence("sub_82F5BE50", 24, ["addi r3,r31,10104", "bl 0x824d3168", "addi r3,r1,80", "bl 0x8248cc60", "lwz r11,10108(r31)", "lwz r3,-4(r11)"])
+    sequence("sub_82F5BEE0", 4, ["mr r31,r4", "lwz r4,0(r4)", "bl 0x82f59c88", "mr r3,r31", "bl 0x8248cc60"])
+    sequence("sub_82F59C88", 3, ["mr r7,r4", "lwz r11,10108(r3)", "lwz r5,10104(r3)", "addi r4,r3,10104"])
+    sequence("sub_82F59C88", 36, ["addi r3,r1,80", "bl 0x82ffb710"])
+    sequence("sub_82FFB710", 25, ["lwz r11,4(r30)", "mr r3,r26", "stw r28,0(r26)", "addi r11,r11,-4", "stw r11,4(r30)"])
+    sequence("sub_823F46D8", 7, ["lwz r31,10104(r3)", "addi r26,r3,10104", "lwz r11,10108(r3)"])
+    sequence("sub_823F46D8", 33, ["mr r4,r28", "lwzx r5,r30,r31", "add r11,r29,r11", "addis r3,r11,1", "addi r3,r3,-9712", "bl 0x823f3050", "addi r29,r29,288", "cmpwi cr6,r29,576"])
+    sequence("sub_823F3050", 0, ["lwz r11,0(r3)", "stw r4,4(r3)", "cmpwi cr6,r11,1", "beqlr cr6", "stw r5,8(r3)", "blr "])
+    sequence("sub_82473418", 4, ["lwz r10,10108(r3)", "mr r11,r3", "lwz r8,10104(r3)"])
+    sequence("sub_82471158", 8, ["addi r3,r1,80", "addi r30,r31,400", "bl 0x82de9af0", "mr r4,r3", "lwz r3,4(r31)", "bl 0x82473418", "mr r4,r3", "mr r3,r30", "bl 0x82d440a0"])
+    sequence("sub_82F4F1D0", 18, ["mr r4,r3", "mr r3,r30", "bl 0x82473418", "mr r28,r3"])
+    sequence("sub_82F4F1D0", 107, ["bl 0x82408998"])
 
     def word(address):
         return struct.unpack_from(">I", raw, address-0x82000000)[0]
@@ -128,6 +160,15 @@ def main():
     expect(table_type(0x82149134) == ".?AVCAudioEngine@@" and word(0x82149134+32) == 0x82D371F0, "Audio engine factory changed")
     expect(table_type(0x821486DC) == ".?AV?$TRefCountedObject@VCAudioEmission@@@@", "Audio emission type changed")
     expect(table_type(0x821489C4) == ".?AV?$TRefCountedObject@VCDummyAudioEmission@@@@", "Dummy audio emission type changed")
+    expect(raw[0x10C350:0x10C360].hex() == "a90bc001e897e89755e49e4700000000", "Legacy IXAPO IID changed")
+    expect(raw[0x29EB00:0x29EB10].hex() == "a90bc001e897e89755e49e4700000001", "Legacy IXAPOParameters IID changed")
+    expect(cstring(0x82152E2C) == ":memory:", "SQLite memory filename changed")
+    expect(table_type(0x8225134C) == ".?AVCPresentation@@", "Presentation type changed")
+    expect(table_type(0x82003524) == ".?AV?$TRefCountedObjectThreadSafe@VCPresentation@@@@", "Refcounted presentation type changed")
+    for table in (0x8225134C,0x82003524):
+        for slot,target in ((28,0x82F5A2C8),(56,0x82F5BE50),(60,0x82F5BEE0)):
+            expect(word(table+slot) == target, "Presentation camera lifecycle slot changed")
+    expect(table_type(0x8200243C) == ".?AVCPresentationView@@" and word(0x8200243C+28) == 0x82471158 and word(0x8225134C+72) == 0x82F4F1D0, "Typed view-camera route changed")
     values = {0x8209282C:-4., 0x82004ABC:4., 0x8224FA5C:.10000000149011612, 0x8224FA60:7.5}
     for address, value in values.items():
         expect(struct.unpack_from(">f", raw, address-0x82000000)[0] == value, "Producer constant changed")
@@ -145,8 +186,16 @@ def main():
               "slot32KindOneCandidates":kind32_candidates,
               "identifiedNonCameraCandidates":{"sub_8293D7F0":"CUIContainerItemCtrl list in ForzaUI CAnimatedScrollingListCtrl",
                                                "sub_83237BD8":"refcounted small-string Release to deleting destructor",
-                                               "sub_82D4CB20":"CAudioEmission or CDummyAudioEmission"},
-              "remainingUnclassifiedSlot32Sites":{k:v for k,v in kind32_candidates.items() if k not in ("sub_8293D7F0","sub_83237BD8","sub_82D4CB20")},
+                                               "sub_82D4CB20":"CAudioEmission or CDummyAudioEmission",
+                                               "sub_831CA938":"IXAPO LockForProcess at owner+256 and owner+8",
+                                               "sub_831CB410":"IXAPO LockForProcess at owner+256",
+                                               "sub_831349B8":"sqlite3_file xUnlock(SQLITE_LOCK_SHARED)"},
+              "remainingUnclassifiedSlot32Sites":{k:v for k,v in kind32_candidates.items() if k not in ("sub_8293D7F0","sub_83237BD8","sub_82D4CB20","sub_831CA938","sub_831CB410","sub_831349B8")},
+              "typedCameraLifecycle":{"owner":"CPresentation","createSlot":56,"removeSlot":60,
+                                      "registryBeginOffset":10104,"registryEndOffset":10108,
+                                      "viewCameraAssignment":"82471158 via registry resolver82473418 to view+400",
+                                      "rendererRecordAdmission":"823F46D8 ->823F3050; record pointers only",
+                                      "initializerKindEstablished":2,"kind1SelectionEstablished":False},
               "kind1ExtentProducerEstablished":False, "cullingAdmitted":False,
               "sourceBackedControl":{"producer":"82F50780", "kind":2,
                                      "storedExtents":[-4,4,4,-4], "near":values[0x8224FA5C],"far":7.5},
