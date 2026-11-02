@@ -30,7 +30,8 @@ SELECTED = {"sub_823F2FF0", "sub_82F44FB0", "sub_82F44F90", "sub_82F43678",
             "sub_82401630", "sub_82473410",
             "sub_82EF12D0", "sub_82450DE8", "sub_8244F4A0", "sub_8244EF48", "sub_8244ED60", "sub_8244EEE8", "sub_8244DFA8", "sub_8244EF08", "sub_824515D8", "sub_82451138", "sub_824513C0", "sub_824827F8", "sub_824501A0", "sub_8244EC00", "sub_8244FA90", "sub_8244FE60",
             "sub_82451578", "sub_8244FB10", "sub_82EDBE28", "sub_82EE7A10", "sub_8244F570", "sub_82449970", "sub_8241E598", "sub_82F7AC00", "sub_82F7A830", "sub_82446268", "sub_8244BE38", "sub_82479DF0", "sub_824697C8", "sub_82EE8868", "sub_8244FEC0", "sub_82F587F0", "sub_82479CE8", "sub_82480298",
-            "sub_8244BFD8", "sub_82F78BC0", "sub_824463B0", "sub_82445BF0", "sub_82445C78", "sub_82445B18", "sub_82446388", "sub_8245FAE8", "sub_82426E60", "sub_8241CD50", "sub_82DE1B20", "sub_82DE1F30"}
+            "sub_8244BFD8", "sub_82F78BC0", "sub_824463B0", "sub_82445BF0", "sub_82445C78", "sub_82445B18", "sub_82446388", "sub_8245FAE8", "sub_82426E60", "sub_8241CD50", "sub_82DE1B20", "sub_82DE1F30",
+            "sub_82426180", "sub_824265F8", "sub_824266B0", "sub_82426800", "sub_8244F418", "sub_8244DFC8", "sub_8244EBD8", "sub_82D35E18", "sub_82EE4578", "sub_82DA57F0", "sub_8244CC30", "sub_8244BDF0", "sub_824517A0"}
 
 
 def main():
@@ -283,6 +284,36 @@ def main():
     sequence("sub_82DE1B20", 80, ['addi r11,r31,320', 'lfs f0,320(r31)', 'lwz r11,1212(r30)', 'stfs f0,4288(r11)', 'lfs f0,324(r31)', 'stfs f0,4292(r11)', 'lfs f0,328(r31)', 'stfs f0,4296(r11)', 'lfs f0,332(r31)', 'stfs f0,4300(r11)', 'ld r10,0(r11)', 'oris r10,r10,1024', 'std r10,0(r11)', 'lfs f0,320(r31)', 'lwz r11,1212(r30)', 'stfs f0,8384(r11)', 'lfs f0,324(r31)', 'stfs f0,8388(r11)', 'lfs f0,328(r31)', 'stfs f0,8392(r11)', 'lfs f0,332(r31)', 'stfs f0,8396(r11)', 'ld r10,8(r11)', 'oris r10,r10,1024', 'std r10,8(r11)'])
     sequence("sub_82DE1F30", 142, ['li r7,3', 'lwz r3,1212(r29)', 'li r6,8', 'rldicr r7,r7,32,31', 'addi r5,r1,112', 'li r4,120', 'bl 0x82445b18', 'lwz r4,96(r26)', 'lwz r3,1212(r29)', 'bl 0x8245cdf0', 'li r6,0', 'lwz r7,100(r26)', 'li r5,0', 'lwz r4,36(r26)', 'lwz r3,1212(r29)', 'bl 0x82426180'])
 
+    # Cached-bank upload groups and the distinct cached instance-reference resolver.
+    sequence("sub_82426180", 14, ['cmpldi cr6,r4,0', 'beq cr6,0x824261d0', 'addi r6,r3,1920', 'li r5,16384', 'bl 0x824266b0', 'std r26,0(r31)', 'cmpldi cr6,r29,0', 'beq cr6,0x824261f0', 'addi r6,r31,6016', 'li r5,17408', 'mr r4,r29', 'mr r3,r31', 'bl 0x824266b0', 'std r26,8(r31)'])
+    sequence("sub_82426180", 158, ['lwz r3,48(r31)', 'lwz r11,56(r31)', 'cmplw cr6,r3,r11', 'ble cr6,0x82426410', 'mr r3,r31', 'bl 0x8241cd50', 'li r11,8450', 'mr r27,r19', 'stwu r11,4(r3)', 'cmplwi cr6,r19,65535', 'stwu r17,4(r3)', 'mr r25,r3'])
+    sequence("sub_824265F8", 8, ['lbzx r11,r10,r11', 'cmplwi r11,0', 'beq 0x8242667c', 'lwz r10,9348(r3)', 'cmplwi cr6,r10,0', 'beq cr6,0x8242667c', 'bl 0x82dafb50', 'lwz r11,9348(r31)', 'addi r4,r1,140', 'addi r3,r11,32', 'bl 0x82735e38'])
+    sequence("sub_824265F8", 19, ['lwz r11,9348(r31)', 'li r10,8', 'addi r11,r11,96', 'stw r10,80(r1)', 'lwz r10,0(r11)', 'cmplwi cr6,r10,8', 'addi r10,r1,80', 'blt cr6,0x82426668', 'mr r10,r11', 'lwz r10,0(r10)', 'mr r3,r31', 'stw r10,0(r11)', 'bl 0x82dafeb0'])
+    sequence("sub_824265F8", 33, ['cmplwi cr6,r11,0', 'beq cr6,0x8242668c', 'lwz r11,9316(r31)', 'b 0x82426690', 'lwz r11,9312(r31)', 'lwz r3,20(r11)', 'bl 0x82426800'])
+    sequence("sub_824266B0", 11, ['cntlzd r10,r30', 'lwz r9,52(r26)', 'clrldi r8,r10,32', 'rlwinm r11,r10,6,0,25', 'sld r30,r30,r8', 'not r8,r30', 'add r31,r11,r31', 'cntlzd r28,r8', 'rlwinm r10,r10,4,0,27', 'rlwinm r29,r28,4,0,27', 'add r27,r10,r5', 'addi r11,r29,3', 'rlwinm r11,r11,2,0,29', 'add r11,r11,r4', 'cmplw cr6,r11,r9'])
+    sequence("sub_824266B0", 27, ['li r8,16', 'mr r7,r29', 'mr r6,r31', 'mr r5,r27', 'mr r3,r26', 'bl 0x82477138', 'rlwinm r11,r29,2,0,29', 'clrldi r10,r28,32', 'mr r4,r3', 'add r31,r11,r31', 'add r5,r29,r27', 'sld r30,r30,r10'])
+    sequence("sub_824266B0", 40, ['clrlwi r11,r4,28', 'cmplwi cr6,r11,4', 'bne cr6,0x82426768', 'lis r11,-32768', 'stwu r11,4(r4)', 'b 0x824267a4', 'cmplwi cr6,r11,0', 'bne cr6,0x82426784', 'lis r11,-32768', 'lis r10,-32768', 'stwu r11,4(r4)', 'stwu r10,4(r4)', 'b 0x824267a4', 'cmplwi cr6,r11,12', 'bne cr6,0x824267a4', 'lis r11,-32768', 'lis r10,-32768', 'stwu r11,4(r4)', 'lis r9,-32768', 'stwu r10,4(r4)', 'stwu r9,4(r4)', 'addi r11,r29,-1', 'add r5,r29,r27', 'rlwinm r11,r11,16,0,15', 'or r11,r11,r27', 'stwu r11,4(r4)'])
+    sequence("sub_824266B0", 66, ['lvx128 v63,r31,r22', 'addic. r28,r28,-1', 'lvx128 v62,r31,r23', 'rldicr r30,r30,1,62', 'lvx128 v61,r31,r24', 'lvx128 v60,r31,r25', 'addi r31,r31,64', 'stvx128 v63,r4,r22', 'stvx128 v62,r4,r23', 'stvx128 v61,r4,r24', 'stvx128 v60,r4,r25', 'addi r4,r4,64', 'bne 0x824267b8', 'cmpldi cr6,r30,0', 'bne cr6,0x824266dc', 'stw r4,48(r26)', 'addi r1,r1,176', 'b 0x82c010f0'])
+    sequence("sub_82426800", 15, ['ld r11,24(r24)', 'li r20,0', 'ld r10,0(r31)', 'ld r9,56(r24)', 'and r4,r11,r10', 'ld r10,32(r31)', 'ld r8,48(r24)', 'and r27,r9,r10', 'ld r11,40(r24)', 'ld r7,24(r31)', 'cmpldi cr6,r4,0', 'ld r6,16(r31)', 'ld r10,32(r24)', 'and r28,r8,r7', 'ld r9,8(r31)', 'and r30,r11,r6', 'lwz r19,13920(r31)', 'and r29,r10,r9', 'beq cr6,0x8242689c', 'addi r6,r31,1920', 'li r5,16384', 'mr r3,r31', 'bl 0x824266b0', 'std r20,0(r31)', 'cmpldi cr6,r29,0', 'beq cr6,0x824268bc', 'addi r6,r31,6016', 'li r5,17408', 'mr r4,r29', 'mr r3,r31', 'bl 0x824266b0', 'std r20,8(r31)'])
+    sequence("sub_8244F418", 4, ['mr r31,r3', 'lwz r3,8(r3)', 'cmplwi cr6,r3,0', 'bne cr6,0x8244f488', 'lwz r11,4(r31)', 'cmplwi cr6,r11,0', 'bne cr6,0x8244f458', 'lwz r3,0(r31)', 'cmplwi cr6,r3,0', 'beq cr6,0x8244f458', 'bl 0x8244dfc8', 'stw r3,4(r31)', 'lwz r3,4(r31)', 'cmplwi cr6,r3,0', 'beq cr6,0x8244f484', 'bl 0x8244ebd8', 'clrlwi. r11,r3,24', 'beq 0x8244f484', 'lwz r11,4(r31)', 'stw r11,8(r31)', 'stw r31,120(r11)'])
+    sequence("sub_8244DFC8", 14, ['li r11,0', 'mr r4,r31', 'stw r11,80(r1)', 'addi r3,r1,80', 'bl 0x82d35e18', 'lwz r11,80(r1)', 'cmplwi cr6,r11,0', 'beq cr6,0x8244e024', 'addi r11,r11,120', 'lwz r11,8(r11)', 'addi r3,r1,80', 'stw r11,16(r31)', 'bl 0x82fed900', 'addi r3,r1,80', 'bl 0x82fed900', 'addi r3,r1,80', 'bl 0x8248cc60', 'lwz r3,16(r31)'])
+    sequence("sub_8244EBD8", 0, ['lwz r11,48(r3)', 'cmpwi cr6,r11,1', 'bne cr6,0x8244ebf4', 'lbz r11,64(r3)', 'cmplwi r11,0', 'li r11,1', 'bne 0x8244ebf8', 'li r11,0', 'clrlwi r3,r11,24', 'blr '])
+    sequence("sub_82D35E18", 7, ['lwz r3,0(r30)', 'cmplwi cr6,r3,0', 'beq cr6,0x82d35e5c', 'bl 0x8244cc30', 'clrlwi. r11,r3,24', 'beq 0x82d35e5c', 'mr r4,r30', 'mr r3,r31', 'bl 0x82da57f0', 'li r29,1', 'mr r3,r29'])
+    sequence("sub_82EE4578", 0, ['lwz r11,0(r3)', 'cmplwi cr6,r11,0', 'beq cr6,0x82ee45cc', 'lbz r10,40(r11)', 'cmplwi cr6,r10,6', 'beq cr6,0x82ee45bc', 'lbz r10,40(r11)', 'cmplwi cr6,r10,4', 'bne cr6,0x82ee45ac', 'lbz r11,41(r11)'])
+    sequence("sub_82DA57F0", 5, ['lwz r31,0(r4)', 'mr r30,r3', 'cmplwi r31,0', 'beq 0x82da5828', 'lwz r11,0(r31)', 'mr r3,r31', 'lwz r11,8(r11)', 'mtctr r11', 'bctrl ', 'lwz r3,0(r30)', 'stw r31,0(r30)', 'cmplwi cr6,r3,0', 'beq cr6,0x82da5848', 'lwz r11,0(r3)', 'lwz r11,12(r11)', 'mtctr r11', 'bctrl '])
+    sequence("sub_8244CC30", 30, ['addi r11,r31,52', 'mfmsr r9', 'mtmsrd r13,1', 'lwarx r10,0,r11', 'addi r10,r10,1', 'stwcx. r10,0,r11', 'mtmsrd r9,1', 'bne 0x8244ccac', 'lwz r11,0(r31)', 'mr r3,r31', 'lwz r11,44(r11)', 'mtctr r11', 'bctrl ', 'clrlwi. r11,r3,24', 'beq 0x8244ccf8', 'lwz r11,0(r31)', 'mr r3,r31', 'lwz r11,68(r11)', 'mtctr r11', 'bctrl '])
+    sequence("sub_8244BDF0", 0, ['lhz r11,12(r3)', 'rlwinm. r11,r11,0,20,20', 'beq 0x8244be2c', 'lwz r11,4(r3)'])
+    sequence("sub_824517A0", 0, ['lwz r11,16(r4)', 'li r10,160', 'lvx128 v63,r11,r10', 'stvx128 v63,r0,r3', 'blr '])
+    mask = 0xFC000000
+    leading = 64-mask.bit_length()
+    groups = 64-((~(mask << leading)) & ((1 << 64)-1)).bit_length()
+    bank_runs = [{"dirtyLeadingGroups":leading,"groups":groups,"vectors":groups*4,
+                  "sourceBegin":bank+64*leading,"sourceEndExclusive":bank+64*(leading+groups),
+                  "encodedWordBase":registers+16*leading,
+                  "header":f"{((groups*16-1)<<16) | (registers+16*leading):08X}"}
+                 for bank,registers in ((1920,16384),(6016,17408))]
+    expect(leading == 32 and groups == 6 and [v["header"] for v in bank_runs] == ["005F4200","005F4600"], "Derived dirty-run header changed")
+
     def word(address):
         return struct.unpack_from(">I", raw, address-0x82000000)[0]
 
@@ -293,6 +324,8 @@ def main():
     def table_type(table):
         return cstring(word(word(table-4)+12)+8)
 
+    expect(table_type(0x820017AC) == ".?AVCTrackRenderModelInstance_Unified@Presentation_Unified@@", "Excluded short-table RTTI changed")
+    expect(word(0x820017AC+60) == 0x822DF28C and word(0x822DF28C) == 0 and word(0x822DF28C+12) == 0x8335D15C, "Short-table boundary/COL changed")
     expect(table_type(0x82086724) == ".?AVCAnimatedScrollingListCtrl@ForzaUI@@", "List owner RTTI changed")
     expect(word(word(0x82086720)+4) == 108 and word(0x82086724+40) == 0x8293D7F0, "List subobject changed")
     expect(cstring(0x8337D1EC+8) == ".?AVCUI4Control@@" and cstring(0x8337D488+8) == ".?AVCUIContainerItemCtrl@@", "List cast types changed")
@@ -401,6 +434,19 @@ def main():
                                       "laterCallers":{"824463B0":["8245FAE8","82426E60"],"82F78BC0":["82DE1B20","82DE1F30"]},
                                       "virtual164ConcreteReceiverEstablished":False,"gpuProjectionDeliveryEstablished":False,
                                       "stateEmitterExecuted":False,"stagingExecuted":False,"submissionExecuted":False},
+              "cachedBankConsumerTrace":{"flushAll":"82426180: qwords0/8 to824266B0, clear each after call",
+                                         "selectedFlush":"82426800: intersect entry24/32 masks then clear whole corresponding dirty qword after nonzero call",
+                                         "entryDispatcher":"824265F8: TLS byte8 and owner9348 select queue; else9312/9316->20->82426800",
+                                         "bankByteOffsets":[1920,6016],"encodedWordBases":[16384,17408],
+                                         "dirtyBitVectors":4,"dirtyBitBytes":64,"dirtyRunsForFC000000":bank_runs,
+                                         "preservedTailVectorsAfter21VectorWrite":3,"fastPathPaddingWord":"80000000",
+                                         "capacityFallback":"82477138","consumerExecuted":False,"gpuProjectionIdentityEstablished":False},
+              "instanceReceiverTrace":{"resolver":"8244F418: cached8, cached4 or resource16 through8244DFC8",
+                                       "referencePath":"82D35E18 validates8244CC30 then82DA57F0 acquires virtual8/releases virtual12",
+                                       "resourceBodyPointerOffset":128,"instanceBacklinkOffset":120,
+                                       "admission":"8244EBD8: instance48==1 and byte64 nonzero",
+                                       "excludedShortTable":"820017AC CTrackRenderModelInstance_Unified; next COL at+60, not a byte-offset164 candidate",
+                                       "virtual164ConcreteReceiverEstablished":False,"resolverExecuted":False},
               "kind1ExtentProducerEstablished":False, "cullingAdmitted":False,
               "sourceBackedControl":{"producer":"82F50780", "kind":2,
                                      "storedExtents":[-4,4,4,-4], "near":values[0x8224FA5C],"far":7.5},
