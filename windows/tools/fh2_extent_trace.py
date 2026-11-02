@@ -21,7 +21,10 @@ SELECTED = {"sub_823F2FF0", "sub_82F44FB0", "sub_82F44F90", "sub_82F43678",
             "sub_831CA678", "sub_831CB908", "sub_831CA938", "sub_831CB410",
             "sub_831349B8", "sub_83148EA8", "sub_82F5A2C8", "sub_82F5BEE0",
             "sub_82F59C88", "sub_82FFB710", "sub_823F46D8", "sub_823F3050",
-            "sub_82473418", "sub_82471158", "sub_82F4F1D0"}
+            "sub_82473418", "sub_82471158", "sub_82F4F1D0", "sub_824517D0",
+            "sub_82DE9AF0", "sub_82D440A0", "sub_82456A90", "sub_82F46060",
+            "sub_82E41AA0", "sub_82478900", "sub_82F4EE70", "sub_82F59FB8",
+            "sub_82F4EE30", "sub_82F4D818", "sub_823FBA80", "sub_82456A60", "sub_8244DFA0"}
 
 
 def main():
@@ -47,7 +50,7 @@ def main():
                 if name in selected:
                     raise ValueError("Duplicate selected function")
                 selected[name] = (body, comments)
-            for target in ("sub_823F2FF0", "sub_82F43678", "sub_82E431E0", "sub_82F5BE50", "sub_82F435E8", "sub_82F44BB0"):
+            for target in ("sub_823F2FF0", "sub_82F43678", "sub_82E431E0", "sub_82F5BE50", "sub_82F435E8", "sub_82F44BB0", "sub_82F46060"):
                 if f"{target}(ctx, base);" in body or f"REX_TAIL_CALL({target})" in body:
                     direct.setdefault(target, []).append(name)
             offsets = sorted({int(v) for v in re.findall(r"\t// stfs f\d+,(240|244|248|252)\(r(?:3|31)\)", body)})
@@ -140,6 +143,30 @@ def main():
     sequence("sub_82471158", 8, ["addi r3,r1,80", "addi r30,r31,400", "bl 0x82de9af0", "mr r4,r3", "lwz r3,4(r31)", "bl 0x82473418", "mr r4,r3", "mr r3,r30", "bl 0x82d440a0"])
     sequence("sub_82F4F1D0", 18, ["mr r4,r3", "mr r3,r30", "bl 0x82473418", "mr r28,r3"])
     sequence("sub_82F4F1D0", 107, ["bl 0x82408998"])
+    sequence("sub_824517D0", 4, ["addi r4,r4,400", "mr r31,r3", "bl 0x82de9af0", "mr r3,r31"])
+    sequence("sub_82DE9AF0", 11, ["lwz r11,0(r31)", "mr r3,r31", "lwz r11,8(r11)", "mtctr r11", "bctrl ", "stw r31,0(r30)"])
+    sequence("sub_8244DFA0", 0, ["lwz r3,10120(r3)", "blr "])
+    sequence("sub_82456A60", 0, ["lwz r3,500(r3)", "blr "])
+    sequence("sub_82F4F1D0", 120, ["lvx128 v127,r28,r9"])
+    sequence("sub_82F4F1D0", 133, ["bl 0x82f46060", "addi r11,r29,2299"])
+    sequence("sub_82F4F1D0", 143, ["lwzx r3,r11,r30", "ld r11,328(r1)", "lwz r31,0(r3)", "std r11,88(r1)", "lwz r11,168(r31)", "mtctr r11", "bctrl "])
+    for index,line in ((7,"lwz r11,460(r1)"),(87,"lwz r11,484(r1)"),(226,"bl 0x82e41aa0"),(234,"bl 0x82478900"),(237,"lwz r11,452(r1)")):
+        sequence("sub_82F46060", index, [line])
+    sequence("sub_82F46060", 243, ["stvx128 v60,r11,r10", "stvx128 v61,r11,r9", "stvx128 v62,r11,r8", "stvx128 v63,r0,r11"])
+    sequence("sub_82E41AA0", 0, ["lvx128 v62,r0,r3", "lis r11,-32256", "lvx128 v63,r0,r4", "addi r10,r1,-16", "vsubfp128 v61,v62,v63"])
+    sequence("sub_82E41AA0", 26, ["vmulfp128 v63,v63,v59", "vsubfp128 v63,v61,v63", "vmulfp128 v63,v63,v60", "vsubfp128 v1,v62,v63", "blr "])
+    sequence("sub_82478900", 51, ["stvx128 v60,r0,r3", "stvx128 v63,r3,r11", "stvx128 v59,r3,r10", "stvx128 v62,r3,r9", "blr "])
+    sequence("sub_82F4EE70", 42, ["cmpwi cr6,r30,2", "bne cr6,0x82f4ef5c"])
+    sequence("sub_82F4EE70", 59, ["cmpwi cr6,r30,3", "bne cr6,0x82f4ef9c"])
+    sequence("sub_82F59FB8", 118, ["li r29,0"])
+    sequence("sub_82F59FB8", 151, ["lwz r11,0(r31)", "mr r3,r31", "lwz r11,56(r11)", "mtctr r11", "bctrl ", "mr r4,r3", "mr r3,r30", "bl 0x82d440a0"])
+    sequence("sub_82F59FB8", 183, ["lwz r3,0(r30)", "li r4,0", "lwz r11,0(r3)", "lwz r11,44(r11)", "mtctr r11", "bctrl ", "addi r29,r29,1", "cmpwi cr6,r29,4"])
+    sequence("sub_823FBA80", 0, ["std r4,32(r1)", "addi r11,r3,16"])
+    sequence("sub_823FBA80", 24, ["stb r8,480(r3)", "blr "])
+    sequence("sub_82F4D818", 163, ["bl 0x82f46060"])
+    sequence("sub_82F4D818", 181, ["bl 0x823fb1b0"])
+    sequence("sub_82F4D818", 210, ["bl 0x823fb1b0"])
+    expect(set(direct.get("sub_82F46060",[])) == {"sub_82F4F1D0","sub_82F4D818"}, "Mirror matrix helper callers changed")
 
     def word(address):
         return struct.unpack_from(">I", raw, address-0x82000000)[0]
@@ -163,16 +190,19 @@ def main():
     expect(raw[0x10C350:0x10C360].hex() == "a90bc001e897e89755e49e4700000000", "Legacy IXAPO IID changed")
     expect(raw[0x29EB00:0x29EB10].hex() == "a90bc001e897e89755e49e4700000001", "Legacy IXAPOParameters IID changed")
     expect(cstring(0x82152E2C) == ":memory:", "SQLite memory filename changed")
+    expect(cstring(0x82250CB4) == "mirrorR*" and cstring(0x82250CC0) == "mirrorL*", "Native mirror selectors changed")
+    expect(struct.unpack_from(">f",raw,0xAF0)[0] == 2., "Reflected-ray scale changed")
     expect(table_type(0x8225134C) == ".?AVCPresentation@@", "Presentation type changed")
     expect(table_type(0x82003524) == ".?AV?$TRefCountedObjectThreadSafe@VCPresentation@@@@", "Refcounted presentation type changed")
     for table in (0x8225134C,0x82003524):
         for slot,target in ((28,0x82F5A2C8),(56,0x82F5BE50),(60,0x82F5BEE0)):
             expect(word(table+slot) == target, "Presentation camera lifecycle slot changed")
     expect(table_type(0x8200243C) == ".?AVCPresentationView@@" and word(0x8200243C+28) == 0x82471158 and word(0x8225134C+72) == 0x82F4F1D0, "Typed view-camera route changed")
+    expect(word(0x8200243C+32) == 0x824517D0, "View camera reference getter changed")
     values = {0x8209282C:-4., 0x82004ABC:4., 0x8224FA5C:.10000000149011612, 0x8224FA60:7.5}
     for address, value in values.items():
         expect(struct.unpack_from(">f", raw, address-0x82000000)[0] == value, "Producer constant changed")
-    slots = {32:0x82F435E8,44:0x82F46988,48:0x82F43678,52:0x823F2568,76:0x823F2FF0,196:0x823F3068}
+    slots = {32:0x82F435E8,44:0x82F46988,48:0x82F43678,52:0x823F2568,76:0x823F2FF0,92:0x82456A60,168:0x823FBA80,196:0x823F3068}
     for table in (0x8224FBDC, 0x82002D44):
         for slot, target in slots.items():
             expect(struct.unpack_from(">I", raw, table+slot-0x82000000)[0] == target, "Camera vtable changed")
@@ -196,6 +226,13 @@ def main():
                                       "viewCameraAssignment":"82471158 via registry resolver82473418 to view+400",
                                       "rendererRecordAdmission":"823F46D8 ->823F3050; record pointers only",
                                       "initializerKindEstablished":2,"kind1SelectionEstablished":False},
+              "viewConsumerTrace":{"getter32":"824517D0: acquired reference copy of view+400",
+                                   "consumer":"82F46060: reflected-ray/look-at camera transform",
+                                   "mirrorSelectors":{"2":"mirrorL*","3":"mirrorR*"},
+                                   "destinationCameraArrayOffset":9196,"destinationCameraCount":4,
+                                   "destinationSetupKind":0,"cameraTransformSetterSlot":168,
+                                   "packetCaller":"82F4D818","packetIndependentSymmetricFrustums":True,
+                                   "projectionUploadEstablished":False,"liveReceiverEstablished":False},
               "kind1ExtentProducerEstablished":False, "cullingAdmitted":False,
               "sourceBackedControl":{"producer":"82F50780", "kind":2,
                                      "storedExtents":[-4,4,4,-4], "near":values[0x8224FA5C],"far":7.5},

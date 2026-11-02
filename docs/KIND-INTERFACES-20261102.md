@@ -1,5 +1,9 @@
 # Remaining constant-1 calls are audio and SQLite interfaces
 
+Follow-up: [view getter and mirror consumer](VIEW-CONSUMER-20261102.md) identifies
+the native mirror-transform role and independent packet symmetric-frustum
+rebuilds. The latest static trace has 142 checks; culling remains held.
+
 All seven sites in the bounded constant-1/slot-32 scan are now identified as
 **non-camera paths**. The last four sites use XAPO audio configuration and
 SQLite file locking. **108 static checks pass**, with no compilation or guest
