@@ -16,6 +16,11 @@ supersedes the view-manager inference in the older sync-branch multiscreen
 trace and in the first revision of this design. Scene cut investigation is
 continuing from the camera data and actual render submission separately.
 
+Follow-up [scene-cut trace](SCENE-CUT-TRACE-20261102.md) identifies the actual
+presentation-camera queue and synchronized visibility packet workers, with
+reproducible static checks, an inert probe and exact future capture plan. No
+mixed view/worker entry point is yet proven safe to repeat for three views.
+
 ## Presentation and geometry
 
 One borderless window covers the row's desktop rectangle. Surround and separate
