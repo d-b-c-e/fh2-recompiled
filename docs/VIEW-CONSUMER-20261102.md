@@ -1,5 +1,9 @@
 # View getter and native mirror-matrix consumer
 
+Follow-up: [packet fields and isolated math](PACKET-PROJECTION-20261102.md)
+maps view/inverse-view/scalar records, confirms six axial frustums, and passes
+78 new actual packet-math checks. Culling remains held.
+
 The view's slot-32 getter returns an acquired reference to its registered
 camera. The traced `82F4F1D0 -> 82F46060` path builds a native mirror-camera
 transform, rather than establishing a main-projection upload. Four destination

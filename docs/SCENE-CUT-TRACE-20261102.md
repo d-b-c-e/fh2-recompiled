@@ -1,5 +1,10 @@
 # FH2 scene cut: static result and next capture
 
+Later [packet-source qualification](PACKET-PROJECTION-20261102.md) identifies
+six axial frustums and separates view/inverse-view matrices from scalar FOV
+reconstruction. Main-scene replay remains unproved. The audio singleton below
+is corrected to 83588C0C from the constructor's signed-high/low address pair.
+
 Task Vemi491724. **The proposed singleton/vtable hook is audio. No safe
 once-simulated three-view scene replay is established.** This investigation
 instead identifies the camera-to-presentation and visibility-packet boundaries,
@@ -51,7 +56,7 @@ runtime receiver selection still needs confirmation.
 | Boundary | Observed path and state | Replay implication |
 | --- | --- | --- |
 | Camera update |829C4440/829C45D8 call829C16F8,829C11C8,829C13D8.829C11C8 computes camera and ends with audio.829C16F8 includes camera/input/time state. | Keep selected update once.829C13D8's target meaning is unresolved; do not label it rendering. |
-| Audio |83598C0C constructed by82D3BF80/82D3B430, primary table82149134. Slot48=82D305F0 ->83032690 -> event table822648A8+228=8303F550 ->8306EC68 ->830757F8. Event/core factories reference fmod_eventi.cpp82264650 and fmod.cpp8226596C. | Four112-byte records at+20896, count+21344, count setter830757D0 range1..4 are FMOD listeners. Exclude from graphics. |
+| Audio |83588C0C constructed by82D3BF80/82D3B430, primary table82149134. Slot48=82D305F0 ->83032690 -> event table822648A8+228=8303F550 ->8306EC68 ->830757F8. Event/core factories reference fmod_eventi.cpp82264650 and fmod.cpp8226596C. | Four112-byte records at+20896, count+21344, count setter830757D0 range1..4 are FMOD listeners. Exclude from graphics. |
 | Camera feed |8262CC40 takes context r3. Camera=context+8; matrix829BAC58 returns camera+240; FOV829BAC60 reads+304. Calls context+40 interface slots168(matrix),56(FOV multiplied by57.295776 at82005910),68(aspect),196(clips). Resets camera byte167. | Useful observation boundary; not pure, and runtime interface factory needs confirmation. |
 | Deferred camera |RTTI CPresentationCameraDeferred table8224FE8C, subobject offset8. Slot168=82F45590 copies64-byte pose to queued80-byte payload, callback82F45528. Slot56=82F44E58 queues FOV, callback82F44E40. Dispatcher824051A0. | Queue owns copied data; changing a host global after enqueue cannot supply per-draw identity. Table match alone does not prove context+40's runtime type. |
 | Base camera |CPresentationCamera table8224FBDC. Pose823FBA80 writes+16..79; FOV82F435F8 writes+260 degrees; aspect82F43608 writes+256; clips823F3068 write+208/+212. Dirty byte+480.82F46988 builds symmetric projection at+80..143 using these fields. | An asymmetric matrix also needs coherent derived/culling state; merely replacing+80 is insufficient proof. |

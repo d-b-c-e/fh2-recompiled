@@ -24,7 +24,10 @@ SELECTED = {"sub_823F2FF0", "sub_82F44FB0", "sub_82F44F90", "sub_82F43678",
             "sub_82473418", "sub_82471158", "sub_82F4F1D0", "sub_824517D0",
             "sub_82DE9AF0", "sub_82D440A0", "sub_82456A90", "sub_82F46060",
             "sub_82E41AA0", "sub_82478900", "sub_82F4EE70", "sub_82F59FB8",
-            "sub_82F4EE30", "sub_82F4D818", "sub_823FBA80", "sub_82456A60", "sub_8244DFA0"}
+            "sub_82F4EE30", "sub_82F4D818", "sub_823FBA80", "sub_82456A60", "sub_8244DFA0",
+            "sub_82F46458", "sub_82F47188", "sub_82F42C50", "sub_82475C80", "sub_82F5AF30",
+            "sub_82476B00", "sub_82475C48", "sub_823F59C8", "sub_82470088", "sub_82400E48",
+            "sub_82401630", "sub_82473410"}
 
 
 def main():
@@ -167,6 +170,29 @@ def main():
     sequence("sub_82F4D818", 181, ["bl 0x823fb1b0"])
     sequence("sub_82F4D818", 210, ["bl 0x823fb1b0"])
     expect(set(direct.get("sub_82F46060",[])) == {"sub_82F4F1D0","sub_82F4D818"}, "Mirror matrix helper callers changed")
+    sequence("sub_82F46458", 10, ["mulli r10,r10,80"])
+    sequence("sub_82F46458", 18, ["lfs f0,52(r11)", "fadds f0,f0,f13", "lfs f12,48(r11)", "lfs f13,56(r11)", "stb r8,9344(r3)"])
+    sequence("sub_82F47188", 23, ["bl 0x82475c80"])
+    for index in (39,66,92,119,145,171):
+        sequence("sub_82F47188", index, ["bl 0x823fb1b0"])
+    for index in (45,71,97,124,150,176):
+        sequence("sub_82F47188", index, ["bl 0x82f42c50"])
+    sequence("sub_82F47188", 112, ["lfs f4,-5324(r11)"])
+    sequence("sub_82F5AF30", 7, ["lwz r21,400(r3)"])
+    sequence("sub_82F5AF30", 357, ["beq 0x82f5b544"])
+    sequence("sub_82F5AF30", 383, ["stfs f0,9280(r31)", "stfs f13,9284(r31)", "stfs f12,9288(r31)", "stfs f11,9292(r31)"])
+    sequence("sub_82F5AF30", 389, ["lwz r11,0(r21)", "mr r4,r21", "addi r3,r1,208", "lwz r11,180(r11)", "mtctr r11", "bctrl "])
+    for index,offset in ((410,9280),(416,9284),(422,9288),(428,9292)):
+        sequence("sub_82F5AF30", index, [f"stfs f1,{offset}(r31)"])
+    sequence("sub_82F5AF30", 459, ["bl 0x82422d80"])
+    sequence("sub_82F5AF30", 464, ["addi r11,r31,9216"])
+    sequence("sub_82476B00", 4, ["addi r4,r4,16", "li r5,64"])
+    sequence("sub_82475C48", 4, ["addi r4,r4,80", "li r5,64"])
+    expect(not any(re.match(r"lwz r\d+,184\(r\d+\)", c) for c in selected["sub_82F5AF30"][1]), "Packet producer now calls stored-projection getter; retrace")
+    sequence("sub_82F42C50", 8, ["lfs f13,20(r3)"])
+    sequence("sub_82F42C50", 35, ["stfs f0,16(r31)"])
+    sequence("sub_82F42C50", 39, ["lvx128 v63,r30,r11", "stvx128 v63,r0,r31", "lfs f13,8(r31)", "fneg f13,f13", "stfs f13,8(r31)"])
+    sequence("sub_82F42C50", 50, ["stfs f0,16(r31)", "stvx128 v63,r0,r31", "stfs f0,24(r31)"])
 
     def word(address):
         return struct.unpack_from(">I", raw, address-0x82000000)[0]
@@ -192,6 +218,7 @@ def main():
     expect(cstring(0x82152E2C) == ":memory:", "SQLite memory filename changed")
     expect(cstring(0x82250CB4) == "mirrorR*" and cstring(0x82250CC0) == "mirrorL*", "Native mirror selectors changed")
     expect(struct.unpack_from(">f",raw,0xAF0)[0] == 2., "Reflected-ray scale changed")
+    expect(struct.unpack_from(">f",raw,0x1EB34)[0] == 2.5 and struct.unpack_from(">f",raw,0x24FA48)[0] == 5000., "Packet axial far constants changed")
     expect(table_type(0x8225134C) == ".?AVCPresentation@@", "Presentation type changed")
     expect(table_type(0x82003524) == ".?AV?$TRefCountedObjectThreadSafe@VCPresentation@@@@", "Refcounted presentation type changed")
     for table in (0x8225134C,0x82003524):
@@ -202,7 +229,9 @@ def main():
     values = {0x8209282C:-4., 0x82004ABC:4., 0x8224FA5C:.10000000149011612, 0x8224FA60:7.5}
     for address, value in values.items():
         expect(struct.unpack_from(">f", raw, address-0x82000000)[0] == value, "Producer constant changed")
-    slots = {32:0x82F435E8,44:0x82F46988,48:0x82F43678,52:0x823F2568,76:0x823F2FF0,92:0x82456A60,168:0x823FBA80,196:0x823F3068}
+    slots = {32:0x82F435E8,44:0x82F46988,48:0x82F43678,52:0x823F2568,60:0x82470088,72:0x82400E48,
+             76:0x823F2FF0,92:0x82456A60,168:0x823FBA80,180:0x82476B00,184:0x82475C48,
+             188:0x82401630,192:0x82473410,196:0x823F3068,252:0x823F59C8}
     for table in (0x8224FBDC, 0x82002D44):
         for slot, target in slots.items():
             expect(struct.unpack_from(">I", raw, table+slot-0x82000000)[0] == target, "Camera vtable changed")
@@ -233,6 +262,17 @@ def main():
                                    "destinationSetupKind":0,"cameraTransformSetterSlot":168,
                                    "packetCaller":"82F4D818","packetIndependentSymmetricFrustums":True,
                                    "projectionUploadEstablished":False,"liveReceiverEstablished":False},
+              "packetProjectionTrace":{"selectedEntryStride":80,"selectedCenterOffset":9328,
+                                       "selectedPositionOffsets":[48,52,56],"centerYOffset":0.5,
+                                       "axialFrustumBase":1440,"frustumStride":192,"axialCount":6,
+                                       "viewMatrixOffset":9152,"inverseViewMatrixOffset":9216,
+                                       "scalarOffsets":{"fov":9280,"aspect":9284,"near":9288,"far":9292},
+                                       "metadataBase":8096,"metadataStride":32,
+                                       "recordIndices":{"axial":[0,1,2,3,4,5],"mirrorSelectors":{"0":6,"1":6,"2":7,"3":8},
+                                                        "view":"packet+36","farVariant":"packet+40","additionalFarVariant":15},
+                                       "directStoredProjectionGetterFound":False,
+                                       "cullingConstruction":"symmetric FOV reconstruction",
+                                       "gpuProjectionDeliveryEstablished":False},
               "kind1ExtentProducerEstablished":False, "cullingAdmitted":False,
               "sourceBackedControl":{"producer":"82F50780", "kind":2,
                                      "storedExtents":[-4,4,4,-4], "near":values[0x8224FA5C],"far":7.5},
