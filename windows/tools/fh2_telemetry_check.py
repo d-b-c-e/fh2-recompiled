@@ -50,7 +50,7 @@ assert "htonl(INADDR_LOOPBACK)" in cpp and not re.search(r"INADDR_ANY|inet_addr|
     "127.0.0.1 only, no other address and no listening socket"
 assert "ioctlsocket(socket_, FIONBIO, &nonblocking)" in cpp, "nonblocking sends"
 hook = cpp[cpp.index(f"void {HOOK}(PPCContext& ctx, uint8_t* base) {{"):]
-assert hook.index("REXCVAR_GET(fh2_telemetry_port) <= 0) return;") < hook.index("Read(base"), "off: nothing is read"
+assert hook.index("if (!g_sampling.load(std::memory_order_relaxed)) return;") < hook.index("Read(base"), "off: nothing is read"
 assert "std::try_to_lock" in hook and "lock_guard" not in hook and "sendto" not in hook, "the game thread never blocks"
 assert hook.index("if (!Read(base") < hook.index("g_sample = sample;") < hook.index("g_sampled = Clock::now();"), \
     "refused samples cannot replace the last accepted sample or refresh freshness"

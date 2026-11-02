@@ -10,8 +10,12 @@
 #include "fh2_telemetry.h"
 
 #if defined(_WIN32)
+#ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
 #define NOMINMAX
+#endif
 #include <winsock2.h>
 #endif
 
@@ -19,6 +23,7 @@
 #include <rex/logging.h>
 #include <rex/ppc/context.h>
 
+#include <atomic>
 #include <chrono>
 #include <condition_variable>
 #include <mutex>
@@ -41,6 +46,7 @@ std::mutex g_sample_mutex;  // the game thread only try_locks it
 Snapshot g_sample;
 Clock::time_point g_sampled{};
 bool g_have = false;
+std::atomic<bool> g_sampling{false};
 
 std::mutex g_mutex;
 std::condition_variable g_cv;
@@ -48,11 +54,28 @@ bool g_stop = false;
 std::thread g_thread;
 
 #if defined(_WIN32)
-void Loop(SOCKET socket_, sockaddr_in target, dbce::forza::Layout layout) {
+void Loop(SOCKET socket_, int last_port) {
   const auto start = Clock::now();
   uint8_t packet[dbce::forza::FORZA_HORIZON_324];
+  sockaddr_in target{};
+  target.sin_family = AF_INET;
+  target.sin_addr.s_addr = htonl(INADDR_LOOPBACK);  // localhost only, by design
   std::unique_lock<std::mutex> lock(g_mutex);
   while (!g_cv.wait_for(lock, kPeriod, [] { return g_stop; })) {
+    // Query copies under the SDK registry lock; direct cvar storage is not thread-safe.
+    const int port = REXCVAR_QUERY(int32_t, fh2_telemetry_port);
+    if (port != last_port) {
+      g_sampling.store(false, std::memory_order_relaxed);
+      std::lock_guard<std::mutex> sample_lock(g_sample_mutex);
+      g_have = false;
+      g_sample = {};
+      last_port = port;
+      g_sampling.store(port > 0 && port <= 65535, std::memory_order_relaxed);
+    }
+    if (port <= 0 || port > 65535) continue;
+    target.sin_port = htons(uint16_t(port));
+    const auto layout = REXCVAR_QUERY(std::string, fh2_telemetry_format) == "fm7"
+                            ? dbce::forza::FORZA_FM7_DASH_311 : dbce::forza::FORZA_HORIZON_324;
     Snapshot sample;
     bool fresh;
     {
@@ -74,8 +97,8 @@ void Loop(SOCKET socket_, sockaddr_in target, dbce::forza::Layout layout) {
 
 void Start() {
 #if defined(_WIN32)
-  const int port = REXCVAR_GET(fh2_telemetry_port);
-  if (port <= 0 || g_thread.joinable()) return;
+  if (g_thread.joinable()) return;
+  const int port = REXCVAR_QUERY(int32_t, fh2_telemetry_port);
   WSADATA wsa;
   if (WSAStartup(MAKEWORD(2, 2), &wsa) != 0) {
     REXLOG_WARN("[fh2] telemetry: WSAStartup failed");
@@ -89,17 +112,16 @@ void Start() {
     WSACleanup();
     return;
   }
-  sockaddr_in target{};
-  target.sin_family = AF_INET;
-  target.sin_port = htons(uint16_t(port));
-  target.sin_addr.s_addr = htonl(INADDR_LOOPBACK);  // localhost only, by design
-  const bool fm7 = REXCVAR_GET(fh2_telemetry_format) == "fm7";
   {
     std::lock_guard<std::mutex> lock(g_mutex);
+    std::lock_guard<std::mutex> sample_lock(g_sample_mutex);
+    g_sample = {};
+    g_have = false;
     g_stop = false;
+    g_sampling.store(port > 0 && port <= 65535, std::memory_order_relaxed);
   }
-  g_thread = std::thread(Loop, socket_, target, fm7 ? dbce::forza::FORZA_FM7_DASH_311 : dbce::forza::FORZA_HORIZON_324);
-  REXLOG_INFO("[fh2] telemetry: {} packets to 127.0.0.1:{}", fm7 ? "fm7" : "horizon", port);
+  g_thread = std::thread(Loop, socket_, port);
+  REXLOG_INFO("[fh2] telemetry: loopback sender started; port0 is silent, port/format changes apply live");
 #endif
 }
 
@@ -107,9 +129,13 @@ void Stop() {
   {
     std::lock_guard<std::mutex> lock(g_mutex);
     g_stop = true;
+    g_sampling.store(false, std::memory_order_relaxed);
   }
   g_cv.notify_all();
   if (g_thread.joinable()) g_thread.join();
+  std::lock_guard<std::mutex> sample_lock(g_sample_mutex);
+  g_have = false;
+  g_sample = {};
 }
 
 }  // namespace fh2::telemetry
@@ -118,11 +144,11 @@ void Stop() {
 // skipped. Off: nothing is read.
 void Fh2TelemetryHandOff(PPCContext& ctx, uint8_t* base) {
   using namespace fh2::telemetry;
-  if (REXCVAR_GET(fh2_telemetry_port) <= 0) return;
+  if (!g_sampling.load(std::memory_order_relaxed)) return;
   Snapshot sample;
   if (!Read(base, ctx.r3.u32, ctx.r4.u32, sample)) return;
   std::unique_lock<std::mutex> lock(g_sample_mutex, std::try_to_lock);
-  if (!lock.owns_lock()) return;
+  if (!lock.owns_lock() || !g_sampling.load(std::memory_order_relaxed)) return;
   g_sample = sample;
   g_sampled = Clock::now();
   g_have = true;

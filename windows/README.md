@@ -10,6 +10,10 @@ native build, generated checks and 200 save/load checks through its built DLL.
 The earlier app6c49/SDK499 binary pair is retained separately.
 Agent game/device testing remains held pending the physical output safety route.
 
+Later source follow-up: [Data Out sender live configuration](../docs/TELEMETRY-SENDER-20261102.md)
+passes real production loopback checks with the qualified SDK DLL. It is not yet
+included in the app7ce460f native executable/private payload above.
+
 Upstream FH2 Recompiled targets Android and Linux. This folder builds the same game for
 **Windows x64** on the [ShiftGlue SDK](https://github.com/arcanite24/shiftglue-sdk), the
 ReXGlue 0.10.0 fork behind [Pinyon Shift](https://github.com/arcanite24/pinyon-shift)
