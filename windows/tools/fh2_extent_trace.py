@@ -47,7 +47,10 @@ PROCEDURAL_FAMILY = [
     ("sub_82FA82D0", 0x82252B0C, ".?AVCProceduralLightMaps@proceduralGeometry@@", 0x82F12860, 0x82F867C0, 0x82692020, "sub_82FA8988", 128),
     ("sub_82FA91B0", 0x82252C6C, ".?AVCProceduralBillboards@proceduralGeometry@@", 0x82F12860, 0x82F12860, 0x82F93968, "sub_82FA96C8", 168),
 ]
-SELECTED.update({"sub_82FA5238", "sub_82C01010", "sub_82F12860", "sub_82692020"})
+SELECTED.update({"sub_82FA5238", "sub_82C01010", "sub_82F12860", "sub_82692020",
+                 "sub_82FAA460", "sub_82F95418", "sub_82F83BE0", "sub_82F952E0", "sub_82FA9F40",
+                 "sub_82F98CF0", "sub_82F96D10", "sub_82F90410", "sub_82F93C00", "sub_82F86228",
+                 "sub_82DAA178", "sub_82DAA3F0"})
 for ctor, table, type_name, slot20, slot48, slot164, allocator, stride in PROCEDURAL_FAMILY:
     SELECTED.update((ctor, allocator, f"sub_{slot164:08X}"))
 
@@ -367,6 +370,27 @@ def main():
     for index, target in ((579,"82445bf0"),(811,"8245fae8"),(921,"82426e60"),(1216,"82445bf0"),(1218,"82426e60")):
         sequence("sub_824279C0", index, ["bl 0x"+target])
 
+    expect(struct.unpack_from(">f", raw, 3152)[0] == 0., "Procedural header comparison zero changed")
+    # Common population calls the derived byte120 loader before ready48=1.
+    sequence("sub_82F95418", 489, ["lwz r11,0(r31)", "mr r8,r24", "mr r7,r28", "addi r6,r1,80", "mr r5,r26", "mr r4,r30", "lwz r11,120(r11)", "mr r3,r31", "mtctr r11", "bctrl "])
+    sequence("sub_82F95418", 507, ["mr r3,r31", "bl 0x82f83be0", "li r11,1", "stw r11,48(r31)"])
+    sequence("sub_82FAA460", 64, ["stw r28,116(r3)", "mr r8,r29", "mr r7,r25", "mr r6,r26", "mr r5,r27", "mr r4,r30", "bl 0x82f95418"])
+    for ctor, table, type_name, slot20, slot48, slot164, allocator, stride in PROCEDURAL_FAMILY:
+        expect(f"bl 0x{allocator[4:].lower()}" in selected["sub_82FAA460"][1], allocator + " factory route changed")
+    for table, target in ((0x8200293C,0x82F98CF0),(0x8200288C,0x82F96D10),(0x820027DC,0x82F90410),(0x8200267C,0x82F93C00),(0x82252B0C,0x82F86228)):
+        expect(word(table+120) == target, "Procedural population slot changed")
+    sequence("sub_82F98CF0", 990, ["lwz r11,68(r31)", "lwz r10,72(r31)", "oris r11,r11,256", "oris r10,r10,256", "ori r11,r11,2048", "stw r10,72(r31)", "stw r11,68(r31)"])
+    sequence("sub_82F90410", 594, ["lwz r11,68(r31)", "lwz r10,72(r31)", "oris r11,r11,256", "oris r10,r10,4096", "ori r11,r11,2048", "stw r10,72(r31)", "stw r11,68(r31)"])
+    sequence("sub_82F93C00", 161, ["lwz r11,68(r31)", "ori r11,r11,2048", "stw r11,68(r31)"])
+    sequence("sub_82F96D10", 798, ["lwz r10,68(r31)", "lfs f13,164(r31)", "ori r10,r10,2048", "stw r10,68(r31)"])
+    sequence("sub_82F86228", 168, ["stw r7,72(r3)", "stw r7,68(r3)"])
+    sequence("sub_82F86228", 111, ["li r7,0"])
+    sequence("sub_82F83BE0", 4, ["lfs f13,8(r11)", "lfs f0,3152(r10)", "fcmpu cr6,f13,f0", "blt cr6,0x82f83c0c", "lwz r10,68(r3)", "ori r10,r10,64", "stw r10,68(r3)"])
+    sequence("sub_82F83BE0", 11, ["lfs f13,12(r11)", "fcmpu cr6,f13,f0", "bltlr cr6", "lwz r11,68(r3)", "ori r11,r11,63", "stw r11,68(r3)"])
+    sequence("sub_82F952E0", 68, ["mr r3,r31", "bl 0x82f83be0", "li r11,1", "stw r11,48(r31)"])
+    sequence("sub_82DAA178", 120, ["mr r8,r28", "mr r7,r27", "li r6,0", "mr r5,r30", "mr r4,r30", "mr r3,r25", "bl 0x82faa460"])
+    sequence("sub_82DAA178", 130, ["cmplwi cr6,r31,0", "beq cr6,0x82daa3b8", "stw r31,8(r26)"])
+
     expect(table_type(0x820017AC) == ".?AVCTrackRenderModelInstance_Unified@Presentation_Unified@@", "Excluded short-table RTTI changed")
     expect(word(0x820017AC+60) == 0x822DF28C and word(0x822DF28C) == 0 and word(0x822DF28C+12) == 0x8335D15C, "Short-table boundary/COL changed")
     expect(table_type(0x82086724) == ".?AVCAnimatedScrollingListCtrl@ForzaUI@@", "List owner RTTI changed")
@@ -503,6 +527,15 @@ def main():
                                                             "slot164":f"{slot164:08X}","allocator":allocator[4:],"stride":stride}
                                                            for ctor,table,type_name,slot20,slot48,slot164,allocator,stride in PROCEDURAL_FAMILY],
                                        "modelMethod":"824279C0 ->82445BF0,8245FAE8,82426E60",
+                                       "population":{"factory":"82FAA460 selects nine allocators, sets116, then82F95418",
+                                                     "common":"82F95418: derived virtual120, optional virtual148,82F83BE0,ready48=1",
+                                                     "headerMasks":"82F83BE0: unless header8 compares<0 OR64 into68; unless header12 compares<0 OR63 into68",
+                                                     "derivedMasks":{"Models":"68 OR01000800;72 OR01000000",
+                                                                     "AnimatedScene":"68 OR01000800;72 OR10000000",
+                                                                     "Characters":"68 OR00000800","Vegetation":"68 OR00000800",
+                                                                     "LightMaps":"clear68/72 before common header mask helper"},
+                                                     "resourceCallback":"82DAA178 calls82FAA460 then stores nonnull instance at output8",
+                                                     "executed":False},
                                        "virtual164ConcreteReceiverEstablished":False,"resourcePopulationEstablished":False,
                                        "constructorsExecuted":False,"resolverExecuted":False},
               "kind1ExtentProducerEstablished":False, "cullingAdmitted":False,

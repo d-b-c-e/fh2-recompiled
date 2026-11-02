@@ -6,8 +6,8 @@ base-constructor callers supply concrete tables and byte-offset-164 targets.
 This narrows the receiver search; it does not establish which object the game
 selects at runtime or complete the resource-population chain. **CULLING HOLD.**
 
-The read-only trace passes **349 static checks**, scans 85,237 generated functions,
-and records 156 selected function hashes. No constructor, allocator, pure-call,
+The read-only trace passes **378 static checks**, scans 85,237 generated functions,
+and records 168 selected function hashes. No constructor, allocator, pure-call,
 virtual method, renderer or GPU submission was executed. The previously qualified
 9,037 closed-helper checks and their projection/AABB failures are retained,
 not rerun. Frozen native `734fff4` / SDK `e223de8d` remains unchanged.
@@ -27,7 +27,7 @@ identify view 9 as the main/player camera. Initialization or later writers can
 change the mask. Word+48 starts at zero, so construction alone fails the
 `8244EBD8` admission requirement (`word48 == 1 && byte64 != 0`). The nine derived
 constructors do not themselves admit the instance by setting that word to one.
-The initializers and later admission/mask writers still need tracing.
+The continuation below traces the common admission and several derived mask writers.
 
 The base's byte-offset-164 target is `82C01010`, a pure-call/fatal path; it is
 excluded from execution. Its table ends before the next locator rather than
@@ -64,20 +64,75 @@ This 1,252-instruction method also traverses properties/resources and performs
 other calls. It is not admitted as a closed or replay-safe fixture, and this
 connection does not identify a GPU projection block.
 
+## Common admission and mask continuation
+
+The next source checkpoint locates factory `82FAA460`. It selects among the
+nine allocators, requests one object, sets backlink-like field+116, then calls
+`82F95418`. That initializer enters only from ready word+48 zero, sets header+4,
+calls derived virtual byte-offset 120, optionally invokes virtual148, calls
+`82F83BE0`, then writes **ready word+48 = 1**. This is the missing source
+transition from construction to resolver eligibility; it does not prove success
+for any particular live resource.
+
+Several derived slot-120 loaders change the constructor masks on their
+population paths, before the common header mask helper:
+
+| Type / method | Mask+68 change | Word+72 change |
+| --- | --- | --- |
+| Models / 82F98CF0 | OR 01000800 | OR 01000000 |
+| AnimatedScene / 82F90410 | OR 01000800 | OR 10000000 |
+| Characters / 82F93C00 | OR 00000800 | unchanged by this recorded sequence |
+| Vegetation / 82F96D10 | OR 00000800 | unchanged by this recorded sequence |
+| LightMaps / 82F86228 | clear to zero | clear to zero |
+
+`82F83BE0` checks header floats at +8 and +12 against zero. Unless the first
+compares less than zero, it ORs 00000040 into instance+68. Unless the second
+compares less than zero, it ORs 0000003F into +68. These describe the actual
+negative branches, including unordered comparisons; no semantic camera names
+are assigned. The LightMaps clear precedes this common helper, which can add
+bits again. The alternate `82F952E0` initialization route also calls that helper
+before setting ready48 to one.
+
+Resource callback `82DAA178` invokes the factory and stores a non-null result
+at output+8. An image reference to this function sits in a callback/tag table;
+it has **not** been established as resource virtual68. The bridge from
+`8244CC30`'s actual virtual68 target to this callback, and live resolver selection,
+remain open. None of these resource callbacks or mutation paths was executed.
+
 ## Evidence and next step
 
 `windows/tools/fh2_extent_trace.py` records the family, allocator strides, base
 layout, table targets and Models call sites. It publishes derived metadata and
 compact instruction guards, never generated guest bodies or the title image.
-Private receipt: `windows/.local/instance-receiver/static02/result.json`, SHA256
-`18424B65D360D8BB1FBFF1EFDB4369917A0B00F02F391B2ACE15D7029FC4CFAE`.
+Private receipt: `windows/.local/instance-receiver/admission02/result.json`, SHA256
+`C043FD437BD43BF2BB4D722CDB411997427EFAA836F854A5B6907AD2A4372B88`.
 The initial guard rejected the two power-of-two allocators' shift instructions;
 matching their actual `rlwinm` scales resolved that guard, without changing the
 source under examination.
 
-Next trace the resource virtual-68 population path and the family initializers
-that set ready word+48 and participation mask+68. A later qualified live observer
+Next trace the bridge from resource virtual68 to the recorded callback and
+additional participation-mask writers. A later qualified live observer
 must establish the actual selected receiver and view roles. No hook, replay,
 mask rewrite, production build, owner install or runtime claim is authorized by
 this static result alone. The kind-1 frustum producer and culling admission
 remain unresolved.
+
+## Restart handoff - November 2
+
+Owner reboot/update instruction495969 ends this interval after this atomic
+source checkpoint. No FH2 test was launched; no vuro lease or native process
+remains. Installed owner fh2.exe remains1139A7A07629AD52CAD686091CE0DC9F165F102E437BACD62C59B3739DCAD18B;
+no deployment or owner rollback was performed. Private candidate734fff4/e223
+remains separate. Full installed-member hashes, rollback boundaries, runtime
+route, abort evidence and exact resume order are recorded in the hub's
+`docs/handoffs/2026-11-02-vuro.md`.
+
+After restart, resume the private runtime smoke first once the desktop provider
+works and a fresh closed-app census confirms the owner-reported Pit House quit.
+Obtain a fresh serial GO/lease from guna; old495741 cannot be reused. Preserve
+all preparedattempt01 evidence. Use FFB/haptics/rumble OFF/zero and observed
+foreground-guarded interaction. Then prepare a qualified read-only scene
+observer build: existing734 SceneProbe is inert/unlinked. Do not claim scene
+capture readiness until that observer exists. Further offline work is the
+resource virtual68 bridge, live receiver/view-role evidence and kind-1 producer.
+No new work or slot request begins before the restart handoff is complete.
