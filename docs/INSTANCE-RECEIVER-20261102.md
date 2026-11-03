@@ -151,8 +151,8 @@ remains separate. Full installed-member hashes, rollback boundaries, runtime
 route, abort evidence and exact resume order are recorded in the hub's
 `docs/handoffs/2026-11-02-vuro.md`.
 
-After restart, resume the private runtime smoke first once the desktop provider
-works and a fresh closed-app census confirms the owner-reported Pit House quit.
+Desktop routes (2026-11-03): follow the [route ladder](../../../dbce-project-mgmt/skills/automated-testing/references/desktop-routes.md) and run `pwsh E:\Source\dbce-project-mgmt\tools\Test-DesktopRoutes.ps1`; if a route is down, continue on the next route within existing authorization and game safeguards.
+After restart, resume the private runtime smoke only after a fresh closed-app census confirms the owner-reported Pit House quit.
 Obtain a fresh serial GO/lease from guna; old495741 cannot be reused. Preserve
 all preparedattempt01 evidence. Use FFB/haptics/rumble OFF/zero and observed
 foreground-guarded interaction. Then prepare a qualified read-only scene
