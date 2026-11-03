@@ -50,7 +50,7 @@ PROCEDURAL_FAMILY = [
 SELECTED.update({"sub_82FA5238", "sub_82C01010", "sub_82F12860", "sub_82692020",
                  "sub_82FAA460", "sub_82F95418", "sub_82F83BE0", "sub_82F952E0", "sub_82FA9F40",
                  "sub_82F98CF0", "sub_82F96D10", "sub_82F90410", "sub_82F93C00", "sub_82F86228",
-                 "sub_82DAA178", "sub_82DAA3F0"})
+                 "sub_82DAA178", "sub_82DAA3F0", "sub_82DAA9F0", "sub_82DA97A0", "sub_83188AC0"})
 for ctor, table, type_name, slot20, slot48, slot164, allocator, stride in PROCEDURAL_FAMILY:
     SELECTED.update((ctor, allocator, f"sub_{slot164:08X}"))
 
@@ -350,6 +350,19 @@ def main():
     def table_type(table):
         return cstring(word(word(table-4)+12)+8)
 
+    # Typed resource population is virtual88 -> virtual60, not the optional virtual68 in 8244CC30.
+    expect(table_type(0x821547FC) == ".?AVCTrackProceduralGeometryResource@@", "Procedural resource RTTI changed")
+    for offset, target in ((44, 0x83188AC0), (60, 0x82DAA3F0), (68, 0x83188AC0), (88, 0x82DA97A0)):
+        expect(word(0x821547FC + offset) == target, f"Procedural resource slot{offset} changed")
+    sequence("sub_83188AC0", 0, ["li r3,0", "blr "])
+    sequence("sub_82DAA9F0", 3, ["li r3,136", "mr r30,r4", "mr r29,r5", "bl 0x82daa938",
+        "mr. r31,r3", "beq 0x82daaa2c", "mr r3,r31", "bl 0x82daa4d0", "lis r11,-32235",
+        "addi r11,r11,18428", "stw r11,0(r31)"])
+    sequence("sub_82DA97A0", 5, ["lwz r11,0(r3)", "mr r30,r3", "lwz r11,60(r11)", "mtctr r11", "bctrl "])
+    sequence("sub_82DAA3F0", 20, ["lwz r5,112(r31)", "b 0x82daa44c", "mr r5,r28",
+        "addi r6,r31,80", "lwz r8,116(r31)", "addi r3,r31,120", "lwz r7,108(r31)",
+        "lwz r4,76(r31)", "bl 0x82daa178"])
+
     # Base layout agrees with visibility masks, bytes and resolver backlink.
     sequence("sub_82FA5238", 5, ["lis r11,-32219", "mr r31,r3", "li r30,0", "addi r10,r11,10844"])
     sequence("sub_82FA5238", 12, ["addi r3,r3,76", "stw r30,8(r31)", "li r5,32", "stw r30,12(r31)", "li r4,0"])
@@ -536,6 +549,13 @@ def main():
                                                                      "LightMaps":"clear68/72 before common header mask helper"},
                                                      "resourceCallback":"82DAA178 calls82FAA460 then stores nonnull instance at output8",
                                                      "executed":False},
+                                       "typedResourcePopulation":{"type":"CTrackProceduralGeometryResource", "table":"821547FC",
+                                           "constructorFactory":"82DAA9F0", "allocationBytes":136,
+                                           "virtual88":"82DA97A0 calls virtual60", "virtual60":"82DAA3F0 calls82DAA178",
+                                           "callbackOutputOffset":120, "callbackInstanceOffset":8, "resourceInstanceOffset":128,
+                                           "virtual44":"83188AC0 returns0", "virtual68":"83188AC0 returns0",
+                                           "optionalVirtual68CallbackHypothesisRuledOutForThisTable":True,
+                                           "liveSelectedResourceEstablished":False, "executed":False},
                                        "virtual164ConcreteReceiverEstablished":False,"resourcePopulationEstablished":False,
                                        "constructorsExecuted":False,"resolverExecuted":False},
               "kind1ExtentProducerEstablished":False, "cullingAdmitted":False,

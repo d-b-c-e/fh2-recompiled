@@ -1,5 +1,11 @@
 # FH2 (Xbox 360) pad action layouts
 
+November2 bounded port: this historical note and the self-contained
+`fh2_option_transforms_check.py` are carried from love's1c2c3d1/3cf7673.
+The referenced `fh2_layouts.py` remains on that retained branch and is not part
+of this port. Its old device-path factory/SDK auto-patch history is intentionally
+not merged; current SDK source follows `SDK-SOURCE-20261102.md` instead.
+
 Static, 2026-10-23. Disc media `15E4FA3D` v0.0.0.6. Addresses are in the expanded image
 (SHA-256 `3708A857…2244`, base `0x82000000`); code is from `windows/generated/default`.
 `windows\tools\fh2_layouts.py <game_root>\media\db\gamedb.slt` prints every layout, and

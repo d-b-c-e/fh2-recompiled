@@ -1,5 +1,10 @@
 # FH2 Recompiled — Windows build (ShiftGlue SDK)
 
+November2 [local source reconciliation](../docs/LOCAL-RECONCILIATION-20261102.md)
+combines the retained vuro lane and bounded love option evidence. It does not
+rebuild/install the candidate or qualify game/device behavior. Publication of
+this local-main promotion awaits the owner; no SDK upstream push is implied.
+
 Latest offline successor: [app734fff4/SDKe223de8d](../docs/COMBINED-OFFLINE-20261102.md)
 passes fresh native build and built-DLL config/sender/GEAR8 qualification, with
 matching private output staged. No game/device/install or rendered UI claim;

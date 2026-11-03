@@ -6,8 +6,8 @@ base-constructor callers supply concrete tables and byte-offset-164 targets.
 This narrows the receiver search; it does not establish which object the game
 selects at runtime or complete the resource-population chain. **CULLING HOLD.**
 
-The read-only trace passes **378 static checks**, scans 85,237 generated functions,
-and records 168 selected function hashes. No constructor, allocator, pure-call,
+The current read-only trace passes **387 static checks**, scans 85,237 generated functions,
+and records 171 selected function hashes. No constructor, allocator, pure-call,
 virtual method, renderer or GPU submission was executed. The previously qualified
 9,037 closed-helper checks and their projection/AABB failures are retained,
 not rerun. Frozen native `734fff4` / SDK `e223de8d` remains unchanged.
@@ -99,6 +99,30 @@ it has **not** been established as resource virtual68. The bridge from
 `8244CC30`'s actual virtual68 target to this callback, and live resolver selection,
 remain open. None of these resource callbacks or mutation paths was executed.
 
+## Typed resource population follow-up (soba, local source only)
+
+The direct caller `82DAA3F0` supplies output=`resource+120` to `82DAA178`;
+the callback's output+8 publication therefore reaches **resource+128**, agreeing
+with the existing instance resolver's body pointer. RTTI identifies its table
+`821547FC` as `CTrackProceduralGeometryResource`. Factory `82DAA9F0` requests136
+bytes, calls the common initializer, then installs that table.
+
+The table's **virtual60** is `82DAA3F0`. **Virtual88** is `82DA97A0`, which dispatches
+virtual60 before releasing the resource reference at+64. In contrast, both
+**virtual44 and virtual68** point to `83188AC0`, the exact `return0` leaf. This
+rules out treating this table's optional virtual68 as the population callback:
+`8244CC30` itself tests virtual44 before optionally calling virtual68. The source
+population chain for this typed table is88 ->60 ->callback ->factory, not68.
+No call is replayed, and no generic callback-table word is mislabeled a vtable.
+
+Nine added RTTI/table/source guards extend378 to387 checks; three added function
+hashes extend168 to171. The fresh receipt is
+`windows/.local/soba-reconcile/resource-population/result.json`, SHA256
+`D6FDCD3429C0DEC589FDE64E854704A245F467582E1276540138C0C9C18C3EA6`.
+This is still not evidence that the live resource selected by the resolver has
+this table, that its caller uses88, or that kind1 extents are suitable for another
+camera. `resourcePopulationEstablished=false` and **CULLING HOLD** remain explicit.
+
 ## Evidence and next step
 
 `windows/tools/fh2_extent_trace.py` records the family, allocator strides, base
@@ -110,8 +134,8 @@ The initial guard rejected the two power-of-two allocators' shift instructions;
 matching their actual `rlwinm` scales resolved that guard, without changing the
 source under examination.
 
-Next trace the bridge from resource virtual68 to the recorded callback and
-additional participation-mask writers. A later qualified live observer
+Next establish the actual selected resource/table and the caller of virtual88
+for the typed population path, plus additional participation-mask writers. A later qualified live observer
 must establish the actual selected receiver and view roles. No hook, replay,
 mask rewrite, production build, owner install or runtime claim is authorized by
 this static result alone. The kind-1 frustum producer and culling admission
