@@ -602,20 +602,215 @@ def census_refusals(rows) -> list[str]:
             if any(x in (r["name"] + " " + r["path"]).lower() for x in REFUSE_PROCESSES)]
 
 
-def lease_errors(go: str) -> list[str]:
-    """The named vibe lease must be the current slot owner and name this GO."""
-    keep, slot = LEASE_DIR / "claude-lease-vibe.json", LEASE_DIR / "test-slot.txt"
+def lease_token(go: str, lease_dir: Path | None = None) -> str:
+    """The exact named vibe lease token; it must be the current slot owner and name exactly GO<go>."""
+    lease_dir = lease_dir or LEASE_DIR
     try:
-        token = json.loads(keep.read_text(encoding="utf-8-sig"))["token"]
-        current = slot.read_text(encoding="utf-8-sig").splitlines()[0].strip()
-    except (OSError, KeyError, IndexError, ValueError) as e:
-        return [f"lease unreadable: {e}"]
-    errors = []
-    if current != token:
-        errors.append("vibe lease is not the current slot owner")
-    if f"GO{go}" not in token or " lease=" not in token:
-        errors.append(f"lease purpose does not name GO{go}")
-    return errors
+        token = json.loads((lease_dir / "claude-lease-vibe.json").read_text(encoding="utf-8-sig"))["token"]
+    except (OSError, KeyError, ValueError) as e:
+        raise Fail(f"lease unreadable: {e}")
+    if not re.search(r"(?<![0-9A-Za-z])GO" + re.escape(go) + r"(?![0-9A-Za-z])", token) or " lease=" not in token:
+        raise Fail(f"lease purpose does not name exactly GO{go}")
+    if not lease_holds(token, lease_dir):
+        raise Fail("vibe lease is not the current slot owner")
+    return token
+
+
+def lease_holds(token: str, lease_dir: Path | None = None) -> bool:
+    lease_dir = lease_dir or LEASE_DIR
+    try:
+        keep = json.loads((lease_dir / "claude-lease-vibe.json").read_text(encoding="utf-8-sig"))["token"]
+        current = (lease_dir / "test-slot.txt").read_text(encoding="utf-8-sig").splitlines()[0].strip()
+    except (OSError, KeyError, IndexError, ValueError):
+        return False
+    return keep == token and current == token
+
+
+# Job object: every descendant of the launched root is accounted, no breakaway, no implicit kill on close.
+class JOBOBJECT_BASIC_ACCOUNTING_INFORMATION(ctypes.Structure):
+    _fields_ = [("TotalUserTime", ctypes.c_int64), ("TotalKernelTime", ctypes.c_int64),
+                ("ThisPeriodTotalUserTime", ctypes.c_int64), ("ThisPeriodTotalKernelTime", ctypes.c_int64),
+                ("TotalPageFaultCount", wt.DWORD), ("TotalProcesses", wt.DWORD),
+                ("ActiveProcesses", wt.DWORD), ("TotalTerminatedProcesses", wt.DWORD)]
+
+
+class THREADENTRY32(ctypes.Structure):
+    _fields_ = [("dwSize", wt.DWORD), ("cntUsage", wt.DWORD), ("th32ThreadID", wt.DWORD),
+                ("th32OwnerProcessID", wt.DWORD), ("tpBasePri", wt.LONG), ("tpDeltaPri", wt.LONG),
+                ("dwFlags", wt.DWORD)]
+
+
+for _fn, _args, _res in (
+        (K32.CreateJobObjectW, [ctypes.c_void_p, wt.LPCWSTR], wt.HANDLE),
+        (K32.AssignProcessToJobObject, [wt.HANDLE, wt.HANDLE], wt.BOOL),
+        (K32.QueryInformationJobObject, [wt.HANDLE, ctypes.c_int, ctypes.c_void_p, wt.DWORD,
+                                         ctypes.POINTER(wt.DWORD)], wt.BOOL),
+        (K32.TerminateJobObject, [wt.HANDLE, wt.UINT], wt.BOOL),
+        (K32.CreateToolhelp32Snapshot, [wt.DWORD, wt.DWORD], wt.HANDLE),
+        (K32.Thread32First, [wt.HANDLE, ctypes.POINTER(THREADENTRY32)], wt.BOOL),
+        (K32.Thread32Next, [wt.HANDLE, ctypes.POINTER(THREADENTRY32)], wt.BOOL),
+        (K32.OpenThread, [wt.DWORD, wt.BOOL, wt.DWORD], wt.HANDLE),
+        (K32.ResumeThread, [wt.HANDLE], wt.DWORD),
+        (K32.CloseHandle, [wt.HANDLE], wt.BOOL)):
+    _fn.argtypes, _fn.restype = _args, _res
+CREATE_SUSPENDED = 0x00000004
+
+
+def new_job() -> int:
+    job = K32.CreateJobObjectW(None, None)
+    if not job:
+        raise Fail(f"CreateJobObjectW failed {ctypes.get_last_error()}")
+    return int(job)
+
+
+def job_active(job: int) -> int:
+    info = JOBOBJECT_BASIC_ACCOUNTING_INFORMATION()
+    if not K32.QueryInformationJobObject(wt.HANDLE(job), 1, ctypes.byref(info), ctypes.sizeof(info), None):
+        raise Fail(f"QueryInformationJobObject failed {ctypes.get_last_error()}")
+    return int(info.ActiveProcesses)
+
+
+def job_pids(job: int) -> list[int]:
+    buf = (ctypes.c_size_t * 258)()
+    if not K32.QueryInformationJobObject(wt.HANDLE(job), 3, ctypes.byref(buf), ctypes.sizeof(buf), None):
+        raise Fail(f"job pid list failed {ctypes.get_last_error()}")
+    return [int(x) for x in buf[2:2 + int(buf[1] & 0xFFFFFFFF)]]
+
+
+def resume_threads(pid: int) -> int:
+    snap = K32.CreateToolhelp32Snapshot(0x00000004, 0)  # TH32CS_SNAPTHREAD
+    if not snap or int(snap) == -1:
+        raise Fail("thread snapshot failed")
+    resumed = 0
+    try:
+        entry = THREADENTRY32(ctypes.sizeof(THREADENTRY32))
+        ok = K32.Thread32First(snap, ctypes.byref(entry))
+        while ok:
+            if entry.th32OwnerProcessID == pid:
+                th = K32.OpenThread(0x0002, False, entry.th32ThreadID)  # THREAD_SUSPEND_RESUME
+                if th:
+                    if K32.ResumeThread(th) != 0xFFFFFFFF:
+                        resumed += 1
+                    K32.CloseHandle(th)
+            ok = K32.Thread32Next(snap, ctypes.byref(entry))
+    finally:
+        K32.CloseHandle(snap)
+    return resumed
+
+
+def supervise(root: Path, argv: list[str], env: dict, seconds: int, hold_lease, hooks: dict | None = None,
+              meta: dict | None = None) -> dict:
+    """Launch argv suspended into a fresh job, observe, always close and account. Writes result.json.
+
+    hold_lease() -> bool is rechecked before launch, every 5 s and before release readiness. hooks lets the
+    inert selftest inject identity/postflight/readback failures; the live run passes none.
+    """
+    hooks = hooks or {}
+    out = root / "out"
+    res: dict = dict(meta or {}) | {"seconds": seconds, "errors": [], "stop": None, "owner_input_events": 0}
+
+    def step(name, fn, default=None):
+        try:
+            return fn()
+        except Exception as e:  # each readback is contained; any failure keeps custody
+            res["errors"].append(f"{name}: {e!r}")
+            return default
+
+    for stale in ("result.json", "out/launch-receipt.json", "out/process-receipt.json", "out/stdout.txt"):
+        if (root / stale).exists():
+            raise Fail(f"stale evidence {stale}: a run root is single-use")
+    for d in (root / "bin" / "logs", root / "bin" / "capturas"):
+        if d.exists() and any(d.iterdir()):
+            raise Fail(f"stale evidence in {d}: a run root is single-use")
+    if not hold_lease():
+        raise Fail("lease lost before launch")
+    res["owner_idle_s_start"] = step("idle", lambda: round(idle_seconds(), 1))
+    res["foreground_before"] = step("foreground", foreground)
+    proc, ident, job = None, None, None
+    t_launch = time.time()
+    t0 = time.monotonic()
+    try:
+        job = new_job()
+        with open(out / "stdout.txt", "wb") as so, open(out / "stderr.txt", "wb") as se:
+            proc = subprocess.Popen(argv, cwd=root / "bin", stdout=so, stderr=se, env=env,
+                                    creationflags=CREATE_SUSPENDED)
+        receipt = {"pid": proc.pid, "launched_unix": t_launch, "argv0": argv[0]}
+        (out / "launch-receipt.json").write_text(json.dumps(receipt), encoding="utf-8")
+        if not K32.AssignProcessToJobObject(wt.HANDLE(job), wt.HANDLE(int(proc._handle))):
+            raise Fail(f"AssignProcessToJobObject failed {ctypes.get_last_error()}")
+        ident = {"pid": proc.pid} | hooks.get("identity", handle_identity)(int(proc._handle))
+        (out / "process-receipt.json").write_text(json.dumps(ident), encoding="utf-8")
+        if os.path.normcase(os.path.realpath(ident["image"])) != os.path.normcase(os.path.realpath(argv[0])):
+            raise Fail(f"launched image {ident['image']} is not {argv[0]}")
+        if resume_threads(proc.pid) < 1:
+            raise Fail("no thread resumed")
+        last_idle, tick = idle_seconds(), 0
+        while proc.poll() is None and time.monotonic() - t0 < seconds:
+            if (root / "STOP").exists():
+                res["stop"] = "STOP file (owner/kole reclaim)"
+                break
+            tick += 1
+            if tick % 5 == 0 and not hold_lease():
+                res["stop"] = "lease lost"
+                res["errors"].append("lease lost during run")
+                break
+            time.sleep(1.0)
+            now = idle_seconds()
+            if now + 1.5 < last_idle:
+                res["owner_input_events"] += 1  # recorded only (kole538387); this run sends no OS input
+            last_idle = now
+    except Exception as e:
+        res["errors"].append(f"launch/observe: {e!r}")
+    finally:
+        res["elapsed_s"] = round(time.monotonic() - t0, 1)
+        res["process"] = ident
+        if proc is not None:
+            alive = step("poll", lambda: proc.poll() is None, True)
+            if alive and ident is not None:  # WM_CLOSE only to the re-verified game's own windows
+                same = step("reverify", lambda: hooks.get("identity", handle_identity)(int(proc._handle)) ==
+                            {k: v for k, v in ident.items() if k != "pid"}, False)
+                hwnds = step("windows", lambda: game_windows(proc.pid), []) if same else []
+                for h in hwnds:
+                    step("wm_close", lambda h=h: U32.PostMessageW(wt.HWND(h), 0x0010, 0, 0))
+                res["wm_close_windows"] = len(hwnds)
+                step("wait", lambda: proc.wait(30) if hwnds else None)
+            if step("poll2", lambda: proc.poll() is None, True):
+                step("kill", proc.kill)  # TerminateProcess on our own Popen handle, never a reopened PID
+                res["forced"] = True
+                step("wait2", lambda: proc.wait(15))
+            res["exit_code"] = step("exit", lambda: proc.returncode)
+        # Descendants: the job accounts all of them; anything still active is held, never killed here.
+        res["job_active"] = step("job", lambda: job_active(job), -1) if job else (0 if proc is None else -1)
+        res["job_pids"] = step("job_pids", lambda: job_pids(job), []) if job else []
+        res["foreground_after"] = step("foreground_after", foreground)
+        res["owner_idle_s_end"] = step("idle_end", lambda: round(idle_seconds(), 1))
+        res["evidence"] = step("evidence", lambda: hooks.get("evidence", evidence)(root, t_launch), {})
+        res["postflight"] = step("postflight", hooks.get("postflight", lambda: {"pass": False}), {"pass": False})
+        res["lease_held_at_end"] = step("lease_end", hold_lease, False)
+        exited = proc is not None and step("exited", lambda: proc.poll() is not None, False)
+        res["custody_clear"] = bool(exited and res["job_active"] == 0 and not res["errors"]
+                                    and res["postflight"].get("pass") and res["lease_held_at_end"])
+        e = res["evidence"] or {}
+        res["gates"] = {
+            "M_runtime": bool(exited and e.get("logs") and e.get("sdl_input_initialized")
+                              and e.get("telemetry_sender_started") and e.get("captures")
+                              and not e.get("sdl_wheel_lines") and not e.get("sdl_gamepad_opened")),
+            "G1_boot": bool(res["elapsed_s"] >= 60 and e.get("logs") and not e.get("crash_lines")),
+            "G2_frames": len(e.get("captures") or []) >= 3,
+            "G3_menu": "review of captures",
+            "R_restore": bool(res["postflight"].get("pass")),
+        }
+        try:
+            (root / "result.json").write_text(json.dumps(res, indent=1, default=str), encoding="utf-8")
+            res["result_sha256"] = sha256(root / "result.json")
+        except Exception as e:
+            res["custody_clear"] = False
+            res["errors"].append(f"result write: {e!r}")
+        if job and res["job_active"] == 0:
+            K32.CloseHandle(wt.HANDLE(job))  # an active job handle is retained with custody
+        res["job_handle_retained"] = bool(job and res["job_active"] != 0)
+        res["_job"] = job if res["job_handle_retained"] else None
+    return res
 
 
 # ---------------------------------------------------------------------------------------------- commands
@@ -668,6 +863,8 @@ def admitted_plan(root: Path, plan_sha: str | None, baseline_sha: str | None) ->
     errors += profile_errors(plan["profile"], owner)
     if sha256(Path(__file__)) != plan["tool_sha256"]:
         errors.append("tool changed since prepare")
+    if not (root / "bin" / "fh2.toml").is_file() or sha256(root / "bin" / "fh2.toml") != plan["toml_sha256"]:
+        errors.append("private fh2.toml differs from the prepared one")
     if errors:
         raise Fail("; ".join(errors))
     return plan
@@ -683,10 +880,12 @@ def cmd_verify(root: Path, plan: dict | None = None) -> dict:
             "private_bins_unchanged": bins, "refused_processes": running}
 
 
-def evidence(root: Path) -> dict:
-    logs = sorted((root / "bin" / "logs").glob("*.log"))
+def evidence(root: Path, since_unix: float) -> dict:
+    """Witnesses written by this launch only (mtime at or after the launch)."""
+    fresh = lambda p: p.stat().st_mtime >= since_unix - 1
+    logs = [p for p in sorted((root / "bin" / "logs").glob("*.log")) if fresh(p)]
     lines = "\n".join(p.read_text("utf-8", "replace") for p in logs).splitlines()
-    caps = sorted((root / "bin" / "capturas").glob("*.png"))
+    caps = [p for p in sorted((root / "bin" / "capturas").glob("*.png")) if fresh(p)]
     return {
         "logs": [str(p) for p in logs],
         "sdl_input_initialized": any("SDL input driver initialized successfully" in l for l in lines),
@@ -702,79 +901,14 @@ def evidence(root: Path) -> dict:
 def cmd_run(root: Path, go: str, seconds: int, plan_sha: str, baseline_sha: str) -> dict:
     root = Path(os.path.abspath(root))
     plan = admitted_plan(root, plan_sha, baseline_sha)
-    errors = lease_errors(go)
+    token = lease_token(go)
     pre = cmd_verify(root, plan)
-    if errors or not pre["pass"]:
-        raise Fail("preflight: " + json.dumps({"lease": errors, "verify": pre}))
-    res: dict = {"go": go, "seconds": seconds, "plan_sha256": plan_sha, "baseline_sha256": baseline_sha,
-                 "owner_idle_s_start": round(idle_seconds(), 1), "foreground_before": foreground(),
-                 "owner_input_events": 0, "stop": None, "errors": []}
-    image = os.path.normcase(str(root / "bin" / "fh2.exe"))
-    proc, ident = None, None
-    t0 = time.monotonic()
-    try:
-        with open(root / "out" / "stdout.txt", "wb") as so, open(root / "out" / "stderr.txt", "wb") as se:
-            proc = subprocess.Popen(plan["profile"]["argv"], cwd=root / "bin", stdout=so, stderr=se,
-                                    env=launch_env(dict(os.environ)))
-        ident = {"pid": proc.pid} | handle_identity(int(proc._handle))
-        res["process"] = ident
-        (root / "out" / "process-receipt.json").write_text(json.dumps(ident), encoding="utf-8")
-        if os.path.normcase(ident["image"]) != image:
-            raise Fail(f"launched image {ident['image']} is not the private copy")
-        last_idle = idle_seconds()
-        while proc.poll() is None and time.monotonic() - t0 < seconds:
-            if (root / "STOP").exists():
-                res["stop"] = "STOP file (owner/kole reclaim)"
-                break
-            time.sleep(1.0)
-            now = idle_seconds()
-            if now + 1.5 < last_idle:
-                res["owner_input_events"] += 1  # recorded only (kole538387); this run sends no OS input
-            last_idle = now
-        res["alive_at_end"] = proc.poll() is None
-    except Exception as e:  # observer failures never skip cleanup
-        res["errors"].append(repr(e))
-    finally:
-        res["elapsed_s"] = round(time.monotonic() - t0, 1)
-        if proc is not None:
-            try:
-                if proc.poll() is None:
-                    hwnds = game_windows(proc.pid) if handle_identity(int(proc._handle)) == {
-                        k: v for k, v in ident.items() if k != "pid"} else []
-                    for h in hwnds:
-                        U32.PostMessageW(wt.HWND(h), 0x0010, 0, 0)  # WM_CLOSE to the verified game's own windows
-                    res["wm_close_windows"] = len(hwnds)
-                    try:
-                        proc.wait(30)
-                    except subprocess.TimeoutExpired:
-                        proc.kill()  # TerminateProcess on our own handle, never a reopened PID
-                        res["forced"] = True
-                        proc.wait(15)
-                res["exit_code"] = proc.returncode
-            except Exception as e:
-                res["errors"].append("cleanup: " + repr(e))
-        rows = processes()
-        lineage = [r for r in rows if os.path.normcase(r["path"] or "") == image
-                   or (ident and r["ppid"] == ident["pid"])]
-        res["remaining_identities"] = lineage
-        res["foreground_after"] = foreground()
-        res["owner_idle_s_end"] = round(idle_seconds(), 1)
-        res["evidence"] = evidence(root)
-        res["postflight"] = cmd_verify(root, plan)
-        exited = proc is not None and proc.poll() is not None
-        res["custody_clear"] = exited and not lineage and not res["errors"]
-        e = res["evidence"]
-        res["gates"] = {
-            # Runtime negative evidence plus a command-line-applied witness; physical isolation is static only.
-            "M_runtime": exited and bool(e["logs"]) and e["sdl_input_initialized"] and e["telemetry_sender_started"]
-                         and bool(e["captures"]) and not e["sdl_wheel_lines"] and not e["sdl_gamepad_opened"],
-            "G1_boot": res["elapsed_s"] >= 60 and not e["crash_lines"] and bool(e["logs"]),
-            "G2_frames": len(e["captures"]) >= 3,
-            "G3_menu": "review of captures",
-            "R_restore": res["postflight"]["pass"],
-        }
-        (root / "result.json").write_text(json.dumps(res, indent=1), encoding="utf-8")
-        res["result_sha256"] = sha256(root / "result.json")
+    if not pre["pass"]:
+        raise Fail("preflight: " + json.dumps(pre))
+    res = supervise(root, plan["profile"]["argv"], launch_env(dict(os.environ)), seconds,
+                    hold_lease=lambda: lease_holds(token), hooks={"postflight": lambda: cmd_verify(root, plan)},
+                    meta={"go": go, "plan_sha256": plan_sha, "baseline_sha256": baseline_sha, "lease_token": token})
+    res.pop("_job", None)
     return res | {"pass": res["custody_clear"] and res["gates"]["R_restore"]}
 
 
@@ -854,11 +988,92 @@ def cmd_selftest() -> dict:
         t("SimHub refused", census_refusals([row("SimHubWPF.exe", "C:/Program Files (x86)/SimHub/SimHubWPF.exe")]))
         t("running fh2 refused", census_refusals([row("fh2.exe", "X:/fh2.exe")]))
         t("unrelated process allowed", not census_refusals([row("explorer.exe", "C:/Windows/explorer.exe")]))
-        t("lease for another GO refused", lease_errors("selftest-never-a-go") != [])
         t("pointer-width HWND signature", U32.GetForegroundWindow.restype is wt.HWND
           and U32.PostMessageW.argtypes[0] is wt.HWND)
         me = handle_identity(_self_handle())
         t("own-handle identity readable", me["birth_filetime"] > 0 and me["image"].lower().endswith(".exe"))
+
+        # Lease identity: exact GO token, current slot owner.
+        ld = d / "lease"
+        ld.mkdir()
+        tok = "claude 2026-11-06T00:00:00 FH2 muted smoke GO123 lease=abc"
+        (ld / "claude-lease-vibe.json").write_text(json.dumps({"token": tok}), encoding="utf-8")
+        (ld / "test-slot.txt").write_text(tok + "\n", encoding="utf-8")
+        t("exact GO accepted", lease_token("123", ld) == tok)
+        for wrong in ("12", "1234", "23"):
+            try:
+                lease_token(wrong, ld)
+                t(f"GO{wrong} refused against GO123", False)
+            except Fail:
+                t(f"GO{wrong} refused against GO123", True)
+        (ld / "test-slot.txt").write_text("someone else lease=zzz\n", encoding="utf-8")
+        t("lease held by another refused", not lease_holds(tok, ld))
+
+        # Lifecycle, with a harmless sleeper child instead of the game (no window, device or game).
+        def sandbox(name):
+            r = d / ("sb-" + name)
+            (r / "bin").mkdir(parents=True)
+            (r / "out").mkdir()
+            return r
+        py = os.path.realpath(sys.executable)
+        sleeper = lambda s: [py, "-I", "-c", f"import time; time.sleep({s})"]
+        good = {"postflight": lambda: {"pass": True}, "evidence": lambda r, s: {}}
+
+        r = supervise(sandbox("ok"), sleeper(1), dict(os.environ), 20, lambda: True, good)
+        t("normal exit: custody clear", r["custody_clear"] and r["job_active"] == 0 and not r["errors"])
+        t("normal exit: result written", (d / "sb-ok" / "result.json").is_file())
+
+        r = supervise(sandbox("owner"), sleeper(1), dict(os.environ), 20, lambda: True,
+                      {"postflight": lambda: {"pass": False, "owner_changes": ["x"]}, "evidence": good["evidence"]})
+        t("owner mismatch keeps custody", not r["custody_clear"] and not r["gates"]["R_restore"])
+
+        def boom(_):
+            raise RuntimeError("identity readback failed")
+        r = supervise(sandbox("ident"), sleeper(60), dict(os.environ), 20, lambda: True, good | {"identity": boom})
+        t("identity failure: child closed via own handle", r.get("forced") and r["job_active"] == 0)
+        t("identity failure: terminal result, custody kept", not r["custody_clear"]
+          and (d / "sb-ident" / "result.json").is_file())
+
+        def bad_evidence(r_, s_):
+            raise OSError("log unreadable")
+        r = supervise(sandbox("readback"), sleeper(1), dict(os.environ), 20, lambda: True,
+                      good | {"evidence": bad_evidence})
+        t("readback failure: result written, custody kept", not r["custody_clear"]
+          and (d / "sb-readback" / "result.json").is_file())
+
+        calls = iter([True] + [False] * 100)
+        r = supervise(sandbox("lease"), sleeper(60), dict(os.environ), 30, lambda: next(calls), good)
+        t("lease lost mid-run: stopped, closed, custody kept", r["stop"] == "lease lost" and r["job_active"] == 0
+          and not r["custody_clear"])
+
+        orphan = [py, "-I", "-c", "import subprocess,sys,time; subprocess.Popen([sys.executable,'-I','-c',"
+                                  "'import time; time.sleep(30)']); time.sleep(1)"]
+        r = supervise(sandbox("orphan"), orphan, dict(os.environ), 20, lambda: True, good)
+        t("surviving grandchild held by job accounting", r["job_active"] >= 1 and not r["custody_clear"])
+        if r.get("_job"):
+            K32.TerminateJobObject(wt.HANDLE(r["_job"]), 1)  # selftest's own sleeper only
+            K32.CloseHandle(wt.HANDLE(r["_job"]))
+
+        stale = sandbox("stale")
+        (stale / "result.json").write_text("{}")
+        try:
+            supervise(stale, sleeper(1), dict(os.environ), 5, lambda: True, good)
+            t("stale result refused before launch", False)
+        except Fail:
+            t("stale result refused before launch", True)
+        (stale / "result.json").unlink()
+        (stale / "bin" / "capturas").mkdir()
+        (stale / "bin" / "capturas" / "old.png").write_bytes(b"x")
+        try:
+            supervise(stale, sleeper(1), dict(os.environ), 5, lambda: True, good)
+            t("stale capture refused before launch", False)
+        except Fail:
+            t("stale capture refused before launch", True)
+        old = d / "witness"
+        (old / "bin" / "logs").mkdir(parents=True)
+        (old / "bin" / "logs" / "fh2.log").write_text("SDL input driver initialized successfully")
+        os.utime(old / "bin" / "logs" / "fh2.log", (time.time() - 3600, time.time() - 3600))
+        t("pre-launch log not counted as a witness", evidence(old, time.time())["logs"] == [])
     return {"pass": True, "checks": checks}
 
 

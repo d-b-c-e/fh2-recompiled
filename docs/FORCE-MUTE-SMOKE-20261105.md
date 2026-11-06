@@ -2,7 +2,7 @@
 
 Kole539149. Offline work only: no game, device, rig, lease or owner write. Tool:
 [`windows/tools/fh2_force_mute.py`](../windows/tools/fh2_force_mute.py) (stdlib Python, run with `python -I`).
-Revision 2 addresses pali540713 (the first revision, `b2000f2`, was NEEDS CHANGES).
+Revision 3 addresses pali540713 and pali541147 (revisions `b2000f2` and `6f5f79c` were NEEDS CHANGES).
 
 ## Target
 
@@ -61,26 +61,42 @@ Then it takes the owner baseline, copies and re-verifies the binaries, and write
 both SHA-256 values.
 
 **`run` revalidates before launch:**
-- It requires `--plan-sha256` and `--baseline-sha256` and checks the schema, `BIN`, root and the
-  regenerated profile.
-- It checks the tool hash.
-- It checks the **named lease**: `claude-lease-vibe.json` must be the current slot owner and its purpose
-  must name `GO<event>`.
+- It requires `--plan-sha256` and `--baseline-sha256` and checks the schema, `BIN`, root, the regenerated
+  profile, the tool hash and the private `fh2.toml` hash.
+- It checks the **exact named lease**: the token in `claude-lease-vibe.json` must name exactly `GO<event>`
+  (so `GO12` cannot pass for `GO123`) and be the current `test-slot.txt` owner.
 - It checks the owner bytes and the census.
+- A run root is single-use. An existing `result.json`, receipt, stdout, log or capture refuses the run
+  before launch.
+- Evidence counts only logs and captures written at or after this launch.
 
-**Owned process:**
-- The tool records the PID, birth time and image through its own process handle and writes
-  `out/process-receipt.json`.
-- WM_CLOSE goes only to visible windows of that verified identity.
-- If the game is still running after 30 s, it calls `TerminateProcess` on the same handle. It never
-  reopens a PID.
-- Every Win32 call has pointer-width `argtypes` and `restype` declared.
+**Owned lineage:**
+- The game starts suspended and is assigned to a fresh job object before it runs a single instruction.
+  The job has no breakaway and no kill-on-close.
+- An immediate launch receipt is written. The tool then records the PID, birth time and image through its
+  own handle, checks the image is the private copy, and only then resumes the threads.
+- The job accounts every descendant.
+- The lease is rechecked after the expensive preflight, just before launch, every 5 s during the run
+  (losing it stops the run) and before deciding custody.
 
-**Cleanup always runs** in a `finally` block. Even if observation fails, the tool closes the game, takes
-a census of the private image and its child processes, verifies the postflight and writes `result.json`.
+**Closing:**
+- If the identity is known and re-verifies, WM_CLOSE goes only to visible windows of that identity, with
+  a 30 s wait.
+- Otherwise, or if the game is still running, the tool calls `TerminateProcess` on its own Popen handle.
+  It never reopens a PID.
+- Any descendant still active in the job is **held**, never killed by the tool.
+- Every cleanup and readback step is contained on its own: a failure is recorded and `result.json` is
+  still written.
 
-**Releasing the lease.** The tool never releases the lease. Run `Rig-Lease.ps1 -Exit -Name vibe` only if
-`result.json` reports `custody_clear: true`. Otherwise keep the lease and report.
+**Releasing the lease.** `custody_clear` is true only when **all** of these hold:
+- the root process exited;
+- the job reports 0 active processes;
+- no step failed;
+- the owner postflight passed (byte-exact, census clear);
+- the exact lease token is still held.
+
+The tool never releases the lease. Run `Rig-Lease.ps1 -Exit -Name vibe` only when `custody_clear` is
+true. Otherwise keep the lease and the evidence, and report.
 
 **Owner activity** is recorded as input events plus idle at start and end, and is not a gate
 (kole538387). The owner or kole stops a run by creating `<root>/STOP`. Keys go to no window; only the
@@ -92,7 +108,8 @@ in-process scripted pad acts.
 | --- | --- |
 | `check --tree .worktrees/vuro-fh2-s4` | **PASS, 82 checks**: app `734fff4`/SDK `e223de8d`/SDL `8bf3b72` clean, 33 file pins, 33 anchors, output-site inventory, runtime-writer and hint-override scans, 29 HIDAPI `IsEnabled` functions all fenced, HIDAPI haptic reads no hint, profile names/types/ranges valid |
 | Negative control in `check` | The pinned copy passes; removing the `wheel_enabled` guard is refused |
-| `selftest` | **PASS, 30**: full-hash change detection including same size and mtime in `game/`; CLI over a loud config; missing mutes refused; inherited `SDL_JOYSTICK_HIDAPI_PS5=1`/`LG4FF=1`/DirectInput=1 and a MOZA mapping neutralised; a tampered profile fence refused; root outside `_work`, inside the owner, already existing or a reparse point refused; a lease for another GO refused; HWND signatures; own-handle identity |
+| `selftest` | **PASS, 45**: full-hash change detection including same size and mtime in `game/`; CLI over a loud config; missing mutes refused; inherited `SDL_JOYSTICK_HIDAPI_PS5=1`/`LG4FF=1`/DirectInput=1 and a MOZA mapping neutralised; a tampered profile fence refused; root outside `_work`, inside the owner, already existing or a reparse point refused; HWND signatures; own-handle identity; exact GO (GO12/GO1234/GO23 refused against GO123) and another slot owner refused |
+| `selftest` lifecycle (harmless Python sleeper children, no game, window or device) | Normal exit clears custody; an owner mismatch keeps custody; an identity-readback failure still kills via the own handle and writes a terminal result; an evidence-readback failure is contained; a lease lost mid-run stops and closes; a surviving grandchild is held by job accounting; a stale result or capture is refused before launch; a pre-launch log does not count as a witness. No stray process remained |
 
 Evidence (ignored): `windows/.local/force-mute-20261105/`. The source tree `vuro-fh2-s4` is a clean
 detached worktree. If the janitor removes it, the check needs a tree that matches the same pins.
