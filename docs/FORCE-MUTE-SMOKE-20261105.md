@@ -2,7 +2,7 @@
 
 Kole539149. Offline work only: no game, device, rig, lease or owner write. Tool:
 [`windows/tools/fh2_force_mute.py`](../windows/tools/fh2_force_mute.py) (stdlib Python, run with `python -I`).
-Revision 3 addresses pali540713 and pali541147 (revisions `b2000f2` and `6f5f79c` were NEEDS CHANGES).
+Revision 4 addresses pali540713, pali541147 and pali541480 (revisions `b2000f2`, `6f5f79c` and `79a5754` were NEEDS CHANGES).
 
 ## Target
 
@@ -84,7 +84,14 @@ both SHA-256 values.
   a 30 s wait.
 - Otherwise, or if the game is still running, the tool calls `TerminateProcess` on its own Popen handle.
   It never reopens a PID.
-- Any descendant still active in the job is **held**, never killed by the tool.
+- Any descendant still active in the job is **held**, never killed by the tool. The job is named
+  per run root, and the `run` process keeps owning it, rewriting `out/custody.json` (job name, members
+  with PID, birth and image, each confirmed in the job) every 2 s until the job is empty.
+- `recover --root <root>` (a separate process) opens the same job by name and lists its members.
+  `recover --root <root> --terminate-job` ends exactly that job; this is an explicit operator or kole
+  decision. The supervisor then closes out, recording `held.ended_by_recover`.
+- Job membership is parsed from the documented `JOBOBJECT_BASIC_PROCESS_ID_LIST` layout (two DWORD
+  counts, then a ULONG_PTR array). An incomplete list fails closed.
 - Every cleanup and readback step is contained on its own: a failure is recorded and `result.json` is
   still written.
 
@@ -108,8 +115,8 @@ in-process scripted pad acts.
 | --- | --- |
 | `check --tree .worktrees/vuro-fh2-s4` | **PASS, 82 checks**: app `734fff4`/SDK `e223de8d`/SDL `8bf3b72` clean, 33 file pins, 33 anchors, output-site inventory, runtime-writer and hint-override scans, 29 HIDAPI `IsEnabled` functions all fenced, HIDAPI haptic reads no hint, profile names/types/ranges valid |
 | Negative control in `check` | The pinned copy passes; removing the `wheel_enabled` guard is refused |
-| `selftest` | **PASS, 45**: full-hash change detection including same size and mtime in `game/`; CLI over a loud config; missing mutes refused; inherited `SDL_JOYSTICK_HIDAPI_PS5=1`/`LG4FF=1`/DirectInput=1 and a MOZA mapping neutralised; a tampered profile fence refused; root outside `_work`, inside the owner, already existing or a reparse point refused; HWND signatures; own-handle identity; exact GO (GO12/GO1234/GO23 refused against GO123) and another slot owner refused |
-| `selftest` lifecycle (harmless Python sleeper children, no game, window or device) | Normal exit clears custody; an owner mismatch keeps custody; an identity-readback failure still kills via the own handle and writes a terminal result; an evidence-readback failure is contained; a lease lost mid-run stops and closes; a surviving grandchild is held by job accounting; a stale result or capture is refused before launch; a pre-launch log does not count as a witness. No stray process remained |
+| `selftest` | **PASS, 54 in total**: full-hash change detection including same size and mtime in `game/`; CLI over a loud config; missing mutes refused; inherited `SDL_JOYSTICK_HIDAPI_PS5=1`/`LG4FF=1`/DirectInput=1 and a MOZA mapping neutralised; a tampered profile fence refused; root outside `_work`, inside the owner, already existing or a reparse point refused; HWND signatures; own-handle identity; exact GO (GO12/GO1234/GO23 refused against GO123) and another slot owner refused |
+| `selftest` lifecycle (harmless Python sleeper children, no game, window or device) | Exact job PID lists and in-job identities for one and three real suspended sleepers. Command-line durable custody: a separate supervisor keeps owning the job after its root exits; `recover` sees exactly the two surviving PIDs; `recover --terminate-job` ends that job; the supervisor closes out with `held.emptied` and `ended_by_recover`; the job name is gone afterwards. Normal exit clears custody; an owner mismatch keeps custody; an identity-readback failure still kills via the own handle and writes a terminal result; an evidence-readback failure is contained; a lease lost mid-run stops and closes; a surviving grandchild is held by job accounting; a stale result or capture is refused before launch; a pre-launch log does not count as a witness. No stray process remained |
 
 Evidence (ignored): `windows/.local/force-mute-20261105/`. The source tree `vuro-fh2-s4` is a clean
 detached worktree. If the janitor removes it, the check needs a tree that matches the same pins.

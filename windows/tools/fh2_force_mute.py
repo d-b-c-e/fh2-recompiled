@@ -656,10 +656,30 @@ for _fn, _args, _res in (
 CREATE_SUSPENDED = 0x00000004
 
 
-def new_job() -> int:
-    job = K32.CreateJobObjectW(None, None)
+class JOBOBJECT_BASIC_PROCESS_ID_LIST(ctypes.Structure):
+    _fields_ = [("NumberOfAssignedProcesses", wt.DWORD), ("NumberOfProcessIdsInList", wt.DWORD),
+                ("ProcessIdList", ctypes.c_size_t * 1024)]  # ULONG_PTR array after two DWORD counts
+
+
+for _fn, _args, _res in (
+        (K32.OpenJobObjectW, [wt.DWORD, wt.BOOL, wt.LPCWSTR], wt.HANDLE),
+        (K32.OpenProcess, [wt.DWORD, wt.BOOL, wt.DWORD], wt.HANDLE),
+        (K32.IsProcessInJob, [wt.HANDLE, wt.HANDLE, ctypes.POINTER(wt.BOOL)], wt.BOOL)):
+    _fn.argtypes, _fn.restype = _args, _res
+
+
+def job_name(root: Path) -> str:
+    """Deterministic per run root, so a recovery process can open the job while its supervisor holds it."""
+    return "Local\\dbce-vibe-fh2-" +hashlib.sha256(os.path.normcase(os.path.abspath(root)).encode()).hexdigest()[:20]
+
+
+def new_job(name: str | None = None) -> int:
+    job = K32.CreateJobObjectW(None, name)
     if not job:
         raise Fail(f"CreateJobObjectW failed {ctypes.get_last_error()}")
+    if name and ctypes.get_last_error() == 183:  # ERROR_ALREADY_EXISTS: someone else's job of that name
+        K32.CloseHandle(job)
+        raise Fail(f"job {name} already exists")
     return int(job)
 
 
@@ -671,10 +691,78 @@ def job_active(job: int) -> int:
 
 
 def job_pids(job: int) -> list[int]:
-    buf = (ctypes.c_size_t * 258)()
-    if not K32.QueryInformationJobObject(wt.HANDLE(job), 3, ctypes.byref(buf), ctypes.sizeof(buf), None):
+    lst = JOBOBJECT_BASIC_PROCESS_ID_LIST()
+    if not K32.QueryInformationJobObject(wt.HANDLE(job), 3, ctypes.byref(lst), ctypes.sizeof(lst), None):
         raise Fail(f"job pid list failed {ctypes.get_last_error()}")
-    return [int(x) for x in buf[2:2 + int(buf[1] & 0xFFFFFFFF)]]
+    listed, assigned = int(lst.NumberOfProcessIdsInList), int(lst.NumberOfAssignedProcesses)
+    if listed != assigned or listed > len(lst.ProcessIdList):
+        raise Fail(f"job pid list incomplete: {listed} listed of {assigned}")  # fail closed
+    return [int(lst.ProcessIdList[i]) for i in range(listed)]
+
+
+def job_members(job: int) -> list[dict]:
+    """PID, birth and image of every current member, each confirmed to be in this exact job."""
+    members = []
+    for pid in job_pids(job):
+        h = K32.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
+        if not h:
+            members.append({"pid": pid, "identity": None, "error": ctypes.get_last_error()})
+            continue
+        try:
+            inside = wt.BOOL(False)
+            K32.IsProcessInJob(h, wt.HANDLE(job), ctypes.byref(inside))
+            members.append({"pid": pid, "in_job": bool(inside)} | (handle_identity(int(h)) if inside else {}))
+        finally:
+            K32.CloseHandle(h)
+    return members
+
+
+def hold_job(root: Path, job: int, timeout: float | None = None) -> dict:
+    """Keep owning the job handle until the job is empty. custody.json names the job and its members; the
+    `recover` command opens the same job by name to inspect it or, by explicit operator decision, end it."""
+    t0, seen = time.monotonic(), {}
+    custody = root / "out" / "custody.json"
+    while True:
+        active = job_active(job)
+        try:
+            members = job_members(job) if active else []
+        except Fail as e:
+            members = [{"error": str(e)}]
+        for m in members:
+            if m.get("pid"):
+                seen[(m["pid"], m.get("birth_filetime"))] = m
+        custody.write_text(json.dumps({"job_name": job_name(root), "supervisor_pid": os.getpid(), "active": active,
+                                       "members": members, "updated": time.time()}, indent=1), encoding="utf-8")
+        if active == 0:
+            return {"emptied": True, "held_s": round(time.monotonic() - t0, 1), "members_seen": list(seen.values()),
+                    "ended_by_recover": (root / "out" / "recover-terminated.json").exists()}
+        if timeout is not None and time.monotonic() - t0 > timeout:
+            return {"emptied": False, "held_s": round(time.monotonic() - t0, 1), "members_seen": list(seen.values())}
+        time.sleep(2.0)
+
+
+def cmd_recover(root: Path, terminate: bool) -> dict:
+    root = Path(os.path.abspath(root))
+    name = job_name(root)
+    job = K32.OpenJobObjectW(0x0004 | 0x0008, False, name)  # JOB_OBJECT_QUERY | JOB_OBJECT_TERMINATE
+    if not job:
+        return {"pass": False, "job_name": name, "error": f"job not open (no live supervisor holds it): "
+                                                         f"{ctypes.get_last_error()}"}
+    try:
+        out = {"job_name": name, "active": job_active(int(job)), "members": job_members(int(job))}
+        if terminate and out["active"]:
+            (root / "out" / "recover-terminated.json").write_text(json.dumps(out | {"at": time.time()}), encoding="utf-8")
+            if not K32.TerminateJobObject(job, 1):  # only members of this exact job
+                raise Fail(f"TerminateJobObject failed {ctypes.get_last_error()}")
+            for _ in range(50):
+                if job_active(int(job)) == 0:
+                    break
+                time.sleep(0.2)
+            out["active_after"] = job_active(int(job))
+        out["pass"] = out.get("active_after", out["active"]) == 0
+        return out
+    finally:
+        K32.CloseHandle(job)
 
 
 def resume_threads(pid: int) -> int:
@@ -730,7 +818,7 @@ def supervise(root: Path, argv: list[str], env: dict, seconds: int, hold_lease, 
     t_launch = time.time()
     t0 = time.monotonic()
     try:
-        job = new_job()
+        job = new_job(job_name(root))
         with open(out / "stdout.txt", "wb") as so, open(out / "stderr.txt", "wb") as se:
             proc = subprocess.Popen(argv, cwd=root / "bin", stdout=so, stderr=se, env=env,
                                     creationflags=CREATE_SUSPENDED)
@@ -782,6 +870,10 @@ def supervise(root: Path, argv: list[str], env: dict, seconds: int, hold_lease, 
         # Descendants: the job accounts all of them; anything still active is held, never killed here.
         res["job_active"] = step("job", lambda: job_active(job), -1) if job else (0 if proc is None else -1)
         res["job_pids"] = step("job_pids", lambda: job_pids(job), []) if job else []
+        if job and res["job_active"] != 0:  # descendants survive: keep owning the job until it empties
+            res["held"] = step("hold", lambda: hold_job(root, job, hooks.get("hold_timeout")), {"emptied": False})
+            res["job_active"] = step("job_after_hold", lambda: job_active(job), -1)
+            res["job_pids"] = step("job_pids_after_hold", lambda: job_pids(job), [])
         res["foreground_after"] = step("foreground_after", foreground)
         res["owner_idle_s_end"] = step("idle_end", lambda: round(idle_seconds(), 1))
         res["evidence"] = step("evidence", lambda: hooks.get("evidence", evidence)(root, t_launch), {})
@@ -1046,13 +1138,53 @@ def cmd_selftest() -> dict:
         t("lease lost mid-run: stopped, closed, custody kept", r["stop"] == "lease lost" and r["job_active"] == 0
           and not r["custody_clear"])
 
-        orphan = [py, "-I", "-c", "import subprocess,sys,time; subprocess.Popen([sys.executable,'-I','-c',"
-                                  "'import time; time.sleep(30)']); time.sleep(1)"]
-        r = supervise(sandbox("orphan"), orphan, dict(os.environ), 20, lambda: True, good)
-        t("surviving grandchild held by job accounting", r["job_active"] >= 1 and not r["custody_clear"])
+        # Exact job membership: one and several real sleeper PIDs, parsed from the documented layout.
+        for n in (1, 3):
+            job = new_job()
+            ps = [subprocess.Popen(sleeper(30), creationflags=CREATE_SUSPENDED) for _ in range(n)]
+            for p_ in ps:
+                K32.AssignProcessToJobObject(wt.HANDLE(job), wt.HANDLE(int(p_._handle)))
+            t(f"job_pids exact for {n}", sorted(job_pids(job)) == sorted(p_.pid for p_ in ps) and job_active(job) == n)
+            t(f"job_members identities for {n}", all(m.get("in_job") and m.get("birth_filetime") for m in job_members(job)))
+            K32.TerminateJobObject(wt.HANDLE(job), 1)  # selftest's own suspended sleepers only
+            for p_ in ps:
+                p_.wait(10)
+            K32.CloseHandle(wt.HANDLE(job))
+
+        r = supervise(sandbox("orphan"), orphan_argv(py, 1, d / "sb-orphan" / "out" / "pids.txt"),
+                      dict(os.environ), 20, lambda: True, good | {"hold_timeout": 3})
+        t("surviving grandchild held by job accounting", r["job_active"] >= 1 and not r["custody_clear"]
+          and r["held"]["emptied"] is False)
         if r.get("_job"):
             K32.TerminateJobObject(wt.HANDLE(r["_job"]), 1)  # selftest's own sleeper only
             K32.CloseHandle(wt.HANDLE(r["_job"]))
+
+        # CLI-level durable custody: a separate supervisor process keeps owning the job after its root exits;
+        # `recover` (another process) opens it by name, sees exactly the surviving PIDs, then ends it.
+        cli = sandbox("cli")
+        sup = subprocess.Popen([py, "-I", str(Path(__file__)), "_orphan_supervise", "--root", str(cli), "--n", "2"],
+                               stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        custody = cli / "out" / "custody.json"
+        deadline = time.monotonic() + 30
+        while time.monotonic() < deadline and not (custody.exists() and (cli / "out" / "pids.txt").exists()):
+            time.sleep(0.5)
+        time.sleep(2.5)
+        rec = subprocess.run([py, "-I", str(Path(__file__)), "recover", "--root", str(cli)],
+                             capture_output=True, text=True, timeout=60)
+        seen = json.loads(rec.stdout)
+        want = sorted(int(x) for x in (cli / "out" / "pids.txt").read_text().split(","))
+        t("supervisor still owns the job after the root exited", sup.poll() is None and seen.get("active") == 2)
+        t("recover lists exactly the surviving PIDs", sorted(m["pid"] for m in seen["members"]) == want)
+        end = subprocess.run([py, "-I", str(Path(__file__)), "recover", "--root", str(cli), "--terminate-job"],
+                             capture_output=True, text=True, timeout=60)
+        t("recover ends exactly that job", json.loads(end.stdout).get("active_after") == 0)
+        sup_out, _ = sup.communicate(timeout=60)
+        final = json.loads((cli / "result.json").read_text())
+        t("supervisor closes out after the job empties", final["job_active"] == 0 and final["held"]["emptied"]
+          and final["held"]["ended_by_recover"] and sorted(m["pid"] for m in final["held"]["members_seen"]) == want)
+        gone = subprocess.run([py, "-I", str(Path(__file__)), "recover", "--root", str(cli)],
+                              capture_output=True, text=True, timeout=60)
+        t("job name released after closure", json.loads(gone.stdout).get("pass") is False)
 
         stale = sandbox("stale")
         (stale / "result.json").write_text("{}")
@@ -1077,6 +1209,23 @@ def cmd_selftest() -> dict:
     return {"pass": True, "checks": checks}
 
 
+def orphan_argv(py: str, n: int, pids_file: Path) -> list[str]:
+    """Selftest root that starts n sleeper grandchildren, records their PIDs, then exits."""
+    code = ("import subprocess,sys,time\n"
+            f"ps=[subprocess.Popen([sys.executable,'-I','-c','import time; time.sleep(60)']) for _ in range({n})]\n"
+            f"open({str(pids_file)!r},'w').write(','.join(str(p.pid) for p in ps))\n"
+            "time.sleep(1)\n")
+    return [py, "-I", "-c", code]
+
+
+def _orphan_supervise(root: Path, n: int) -> dict:
+    """Selftest only: supervise an orphan-producing sleeper root through the real hold path (no timeout)."""
+    root = Path(os.path.abspath(root))
+    py = os.path.realpath(sys.executable)
+    return supervise(root, orphan_argv(py, n, root / "out" / "pids.txt"), dict(os.environ), 20, lambda: True,
+                     {"postflight": lambda: {"pass": True}, "evidence": lambda r, s: {}})
+
+
 def _self_handle() -> int:
     K32.OpenProcess.argtypes, K32.OpenProcess.restype = [wt.DWORD, wt.BOOL, wt.DWORD], wt.HANDLE
     return int(K32.OpenProcess(0x1000, False, os.getpid()))  # PROCESS_QUERY_LIMITED_INFORMATION
@@ -1094,6 +1243,12 @@ def main() -> int:
     p.add_argument("--owner", type=Path, default=OWNER)
     v = sub.add_parser("verify")
     v.add_argument("--root", type=Path, required=True)
+    rc = sub.add_parser("recover", help="inspect (or, by explicit decision, end) a run's held job")
+    rc.add_argument("--root", type=Path, required=True)
+    rc.add_argument("--terminate-job", action="store_true")
+    o = sub.add_parser("_orphan_supervise")
+    o.add_argument("--root", type=Path, required=True)
+    o.add_argument("--n", type=int, default=2)
     r = sub.add_parser("run")
     r.add_argument("--root", type=Path, required=True)
     r.add_argument("--go", required=True)
@@ -1122,6 +1277,11 @@ def main() -> int:
                     out["negative_control"] = f"refused as expected: {str(e)[:120]}"
         elif a.cmd == "selftest":
             out = cmd_selftest()
+        elif a.cmd == "recover":
+            out = cmd_recover(a.root, a.terminate_job)
+        elif a.cmd == "_orphan_supervise":
+            out = _orphan_supervise(a.root, a.n)
+            out.pop("_job", None)
         elif a.cmd == "census":
             rows = census_refusals(processes())
             out = {"pass": not rows, "refused": rows, "owner_idle_s": round(idle_seconds(), 1)}
