@@ -2,6 +2,7 @@
 
 Kole539149. Offline work only: no game, device, rig, lease or owner write. Tool:
 [`windows/tools/fh2_force_mute.py`](../windows/tools/fh2_force_mute.py) (stdlib Python, run with `python -I`).
+Revision 2 addresses pali540713 (the first revision, `b2000f2`, was NEEDS CHANGES).
 
 ## Target
 
@@ -9,89 +10,116 @@ The installed owner copy is napo's file-only deploy `fh2-041811100`: app `734fff
 `fh2.exe` `A4E3BC4F...`. All five installed bin hashes are pinned in the tool (`BIN`). It has never
 been launched; `logs/fh2.log` was last written Oct 25 and there is no `fh2.toml`. Nothing is rebuilt.
 
-## Mechanism: two independent layers, both launch-time only
+## Mechanism: launch-time only
 
-Every physical output in the exact source was inventoried (49 call sites): SDL rumble/haptic/trigger/LED
-calls in `sdl_input_driver.cpp`, the SDK XInput driver, the guest socket `sendto` and Forza Data Out.
+The static check pins the reviewed mechanisms in the exact source. It is not an exhaustive output proof
+and not a physical measurement.
 
-**A. SDK cvars on the command line.** The command line outranks the config file
-(`Source::kConfig < kCommandLine`). The private `fh2.toml` repeats the same values in case a CLI11 parse
-error drops the arguments.
-- `--no-wheel_enabled`: `IsWheelPart` returns false. No SDL joystick, haptic device or wheel force object
-  is ever opened; every wheel-force site needs `wheel_`, which only that path creates.
-- Wheel forces also off or zero: `wheel_ffb_effects`, mode `off`, strength, centering, spring, damper,
-  friction, inertia, engine/road rumble, and an empty `wheel_ffb_device`.
-- `--pad_rumble_strength=0`: the single scaling point in `InputSystem::SetVibration` that every guest
-  vibration passes through before any driver.
-- `pad_ds_triggers=off` and no gear click. `pad_ds_trigger_strength` is not used because its range is
-  25-100, so 0 would be rejected.
-- `--input_backend=sdl`: the SDK XInput driver is not created.
-- `--fh2_telemetry_port=0`: the sender loop `continue`s before `sendto`.
-- Empty `pad_chord_game_menu` and `pad_chord_debug_overlay`, and `--no-mnk_mode`: the scripted pad
-  cannot open the settings menu.
+**B. Physical isolation, the SDL environment of the fh2 process.**
+- The launch environment is the inherited one with **every `SDL_*` variable removed**. This drops, for
+  example, an inherited `SDL_GAMECONTROLLERCONFIG` mapping or a per-driver enable.
+- It then sets to `0`:
+  - the DirectInput, RawInput, WGI, GameInput and XInput backends, and the generic HIDAPI hint;
+  - all 27 HIDAPI driver-enable hints. An enabled per-driver hint overrides `SDL_JOYSTICK_HIDAPI=0`;
+    for example, `SDL_hidapi_ps5.c` `HIDAPI_DriverPS5_IsEnabled` lets `SDL_JOYSTICK_HIDAPI_PS5=1` win.
+- The check derives the hint set each `*_IsEnabled` reads from the exact SDL tree (`8bf3b72`, clean) and
+  requires it to be covered. It also confirms the HIDAPI haptic (lg4ff) code reads no hint of its own.
+- Why this layer is necessary: SDL 3.5's DirectInput open sends `DISFFC_RESET` and sets
+  `DIPROP_AUTOCENTER` **on** for any force-capable device, before any game force.
+- Environment hints outrank the SDK's `SDL_SetHint` calls, which never use `SDL_HINT_OVERRIDE` or touch
+  these names. The DirectInput hint also gates the DirectInput haptic backend.
 
-**B. SDL environment hints on the fh2 process only.** `SDL_JOYSTICK_DIRECTINPUT`, `RAWINPUT`, `WGI`,
-`GAMEINPUT`, `HIDAPI` and `SDL_XINPUT_ENABLED` are all set to `0`, so SDL can enumerate no physical
-controller.
-- This layer is required: SDL 3.5's DirectInput open (`SDL_dinputjoystick.c`) sends `DISFFC_RESET` and
-  sets `DIPROP_AUTOCENTER` **on** for any force-capable device, before any game force.
-- Environment hints outrank the SDK's own `SDL_SetHint` (below `SDL_HINT_OVERRIDE`). The SDK never
-  overrides these hints.
-- The DirectInput hint also disables the DirectInput haptic backend.
-- SDL has no built-in MOZA gamepad mapping, and the SDK's SDL virtual joystick has no users.
+**A. Defence in depth, SDK cvars on the command line.** The private `fh2.toml` repeats them. A alone is
+not sufficient.
+- **Wheel:** `--no-wheel_enabled`, so `IsWheelPart` returns false and no wheel joystick or haptic device
+  is opened. Every wheel force is also off or zero.
+- **Rumble:** `--pad_rumble_strength=0` at the single vibration scaling point.
+- **Other outputs:** DualSense triggers off, `input_backend=sdl` (no SDK XInput driver) and Data Out
+  port 0.
+- **Menus:** the controller chords to the settings and debug menus are empty, and `--no-mnk_mode`.
+- **Not used:** `pad_ds_trigger_strength`, because its range is 25-100.
 
-The only runtime writers that outrank the command line are the settings overlay and console. The run
-never opens them, and layer B still holds if one were opened. Layer A still holds if layer B failed.
+**Restore.** Nothing on the MOZA, Pit House or SimHub is touched. The proof covers the owner `bin/`,
+`logs/`, `user/`, `game/` (all of it, including 7.4 GB of game data), the absent owner `fh2.toml` and
+`Documents/fh2`. It uses a **full SHA-256** plus size, mtime and attributes for every file, taken before
+and after, together with an exact PID, birth time and image closure census.
 
-**Restore.** No device, Pit House or SimHub setting is touched, so there is nothing to restore. The proof
-is a byte-exact before/after snapshot of the owner `bin/`, `logs/`, `user/`, `game/` (size, mtime and
-attributes for files over 64 MiB), the absent owner `fh2.toml` and `Documents/fh2`, plus a closed-process
-census.
+**Physical preconditions software cannot set.** Pit House closed (the FH2-only rule), SimHub closed
+(Nov 2 clearance), ButtKicker amplifier off and no wind devices. The tool only reads the process list,
+refuses if Pit House, SimHub or fh2 is running, and never starts or stops them. **On 2026-11-05 SimHub was
+running**, so the run refuses until the owner closes it or kole and the owner change that condition.
 
-**Physical preconditions software cannot set.** Pit House closed (the FH2-only rule), SimHub closed,
-ButtKicker amplifier off and no wind devices. These come from the owner's Nov 2 clearance. The tool only
-reads the process list and refuses if Pit House, SimHub or fh2 is running; it never starts or stops
-them. **On 2026-11-05 SimHub was running** (`census.json`), so a run would refuse until the owner
-closes it.
+## Lifecycle (pali findings 2-5)
+
+**`prepare` refuses before any write unless all of these hold:**
+- The root is a new direct child of `E:/Source/_work`, canonical, with no reparse point on its path and no
+  overlap with the owner install.
+- Every installed bin hash matches.
+- The census is clear.
+
+Then it takes the owner baseline, copies and re-verifies the binaries, and writes `plan.json`. It prints
+both SHA-256 values.
+
+**`run` revalidates before launch:**
+- It requires `--plan-sha256` and `--baseline-sha256` and checks the schema, `BIN`, root and the
+  regenerated profile.
+- It checks the tool hash.
+- It checks the **named lease**: `claude-lease-vibe.json` must be the current slot owner and its purpose
+  must name `GO<event>`.
+- It checks the owner bytes and the census.
+
+**Owned process:**
+- The tool records the PID, birth time and image through its own process handle and writes
+  `out/process-receipt.json`.
+- WM_CLOSE goes only to visible windows of that verified identity.
+- If the game is still running after 30 s, it calls `TerminateProcess` on the same handle. It never
+  reopens a PID.
+- Every Win32 call has pointer-width `argtypes` and `restype` declared.
+
+**Cleanup always runs** in a `finally` block. Even if observation fails, the tool closes the game, takes
+a census of the private image and its child processes, verifies the postflight and writes `result.json`.
+
+**Releasing the lease.** The tool never releases the lease. Run `Rig-Lease.ps1 -Exit -Name vibe` only if
+`result.json` reports `custody_clear: true`. Otherwise keep the lease and report.
+
+**Owner activity** is recorded as input events plus idle at start and end, and is not a gate
+(kole538387). The owner or kole stops a run by creating `<root>/STOP`. Keys go to no window; only the
+in-process scripted pad acts.
 
 ## Inert qualification (no game, device or build)
 
 | Check | Result |
 | --- | --- |
-| `check --tree .worktrees/vuro-fh2-s4` | **PASS, 77 checks**: app HEAD `734fff4`/SDK `e223de8d` clean, 33 file pins, 33 anchors, output-site inventory, runtime-writer and hint-override scans, profile names/types/ranges/allowed values |
+| `check --tree .worktrees/vuro-fh2-s4` | **PASS, 82 checks**: app `734fff4`/SDK `e223de8d`/SDL `8bf3b72` clean, 33 file pins, 33 anchors, output-site inventory, runtime-writer and hint-override scans, 29 HIDAPI `IsEnabled` functions all fenced, HIDAPI haptic reads no hint, profile names/types/ranges valid |
 | Negative control in `check` | The pinned copy passes; removing the `wheel_enabled` guard is refused |
-| `selftest` | **PASS, 20**: byte, size and added-file changes caught (including same size and mtime); CLI outranks a loud config; a missing rumble, wheel or DirectInput mute refused; write root inside owner refused; out-of-range, unknown and disallowed values refused; Pit House, SimHub and fh2 refused |
-| `census` | Refuses on the SimHub processes |
+| `selftest` | **PASS, 30**: full-hash change detection including same size and mtime in `game/`; CLI over a loud config; missing mutes refused; inherited `SDL_JOYSTICK_HIDAPI_PS5=1`/`LG4FF=1`/DirectInput=1 and a MOZA mapping neutralised; a tampered profile fence refused; root outside `_work`, inside the owner, already existing or a reparse point refused; a lease for another GO refused; HWND signatures; own-handle identity |
 
-Evidence (ignored): `windows/.local/force-mute-20261105/{check,selftest,census}.json`.
-The source tree `vuro-fh2-s4` is a clean detached worktree. If the janitor removes it, the check needs a
-tree that matches the same pins.
+Evidence (ignored): `windows/.local/force-mute-20261105/`. The source tree `vuro-fh2-s4` is a clean
+detached worktree. If the janitor removes it, the check needs a tree that matches the same pins.
 
-## Smoke plan (after a kole GO and lease)
+## Smoke plan (after a hash-bound kole GO)
 
-Routes: R0 for logs and files, R1 for the game's scripted pad (`fh2_teste_botoes`) and in-process PNG
-captures (`fh2_captura_cada_s=15`, max 40). No OS input, foreground input, desktop provider or stick
-steering is used.
+Routes: R0 for logs and files, R1 for the game's scripted pad (`fh2_teste_botoes`, buttons only, no
+steering) and in-process PNG captures (every 15 s, max 40). No OS input and no desktop provider are used.
 
-1. `Rig-Lease.ps1 -Enter -Name vibe -Purpose 'FH2 muted smoke <GO>'`.
-2. `prepare --root E:/Source/_work/vibe-fh2-smoke-<GO>`. It refuses unless every installed bin hash
-   matches, the census is clear and the root is new. It copies the five binaries privately and
-   re-verifies them, writes the private `fh2.toml`, and records `plan.json` and the owner `baseline.json`.
-3. `run --root ... --go <GO> --seconds 600` (hard cap 780 s). It:
-   - re-verifies the tool hash, owner bytes and census, and requires the owner idle for at least 180 s;
-   - records the foreground window, then launches 1280x720 windowed with the game data read from the
-     owner `game/` and every write going to the private root;
-   - aborts on any OS input, since the run sends none;
-   - sends WM_CLOSE at the end, then force-kills its own process handle after 30 s;
-   - records the foreground window again, analyzes the evidence and runs postflight verification.
-4. `Rig-Lease.ps1 -Exit -Name vibe`, then report to kole.
+1. `pwsh E:/Source/dbce-project-mgmt/tools/Rig-Lease.ps1 -Enter -Name vibe -Purpose 'FH2 muted smoke GO<event>'`
+2. `python -I windows/tools/fh2_force_mute.py prepare --root E:/Source/_work/vibe-fh2-smoke-<event>`
+   and record both printed hashes.
+3. `python -I windows/tools/fh2_force_mute.py run --root E:/Source/_work/vibe-fh2-smoke-<event> --go <event> --plan-sha256 <P> --baseline-sha256 <B> --seconds 600`
+   (hard cap 780 s). The game runs windowed at 1280x720, reading game data from the owner `game/` and
+   writing only to the private root.
+4. If `custody_clear` is true, run `Rig-Lease.ps1 -Exit -Name vibe`. Then report to kole with
+   `result.json` and its SHA.
 
-Pass gates, reported separately:
-- **M (mute):** no `SDL wheel` and no `OnControllerDeviceAdded` log line, and the postflight passes.
-- **G1 (boot):** at least 60 s alive with no crash in the log.
-- **G2 (frames):** at least 3 captures.
-- **G3 (menu or prompt reached):** review of the captures.
-- **R (restore):** zero owner changes and no refused process.
+Gates, reported separately:
+- **M_runtime:** the log exists with SDL input initialized and the telemetry sender started at port 0;
+  captures exist, which only the command line requests, so they prove it was applied; and there is no
+  `SDL wheel` or `OnControllerDeviceAdded` line. This is runtime negative evidence. Physical isolation
+  rests on the static check, not on a measurement.
+- **G1:** at least 60 s alive with no crash line.
+- **G2:** at least 3 captures.
+- **G3:** a menu or prompt is reached, judged from the captures.
+- **R:** zero owner changes by full hash, and no refused process.
 
-Driving, reverse, bindings on the physical wheel, forces, telemetry packets, F4 config save and owner
-acceptance remain separate gates.
+Driving, reverse, physical-wheel bindings, forces, telemetry packets, F4 config save and owner acceptance
+remain separate gates.

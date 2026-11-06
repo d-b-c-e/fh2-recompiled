@@ -1,32 +1,38 @@
 """FH2 force/motion mute and private smoke route for the installed 734fff4/SDK e223 build.
 
-No rebuild. Two independent layers keep every physical output silent:
+No rebuild. Two layers, launch-time only:
 
-  A. SDK cvars (command line, outranking the private fh2.toml that repeats them): the wheel path is
-     never opened (wheel_enabled false), every wheel force is off/zero, guest rumble is scaled to 0,
-     DualSense triggers off, Forza Data Out port 0, controller chords to the settings/debug menus empty.
-  B. SDL environment hints on the fh2 process only: DirectInput, RawInput, WGI, GameInput, HIDAPI and
-     XInput joystick backends off, so SDL can enumerate or open no physical controller. Opening a
-     force-capable DirectInput device alone sends DISFFC_RESET and DIPROP_AUTOCENTER on, so A alone is not
-     enough; B alone holds even if a runtime menu flipped A.
+  B (physical isolation). The fh2 process gets a sanitized environment: every inherited SDL_* variable is
+     removed, then the DirectInput, RawInput, WGI, GameInput, XInput and generic HIDAPI backends and every
+     HIDAPI driver-enable hint are set to 0, so SDL enumerates and opens no physical controller. Needed because
+     opening a force-capable DirectInput device alone sends DISFFC_RESET and DIPROP_AUTOCENTER on, and an
+     inherited per-driver hint (for example SDL_JOYSTICK_HIDAPI_PS5=1) overrides the generic HIDAPI=0.
+  A (defence in depth). SDK cvars on the command line, repeated in the private fh2.toml: wheel path never
+     opened, wheel forces off/zero, guest rumble scaled to 0, DualSense triggers off, Data Out port 0, controller
+     chords to the settings/debug menus empty. A alone is not sufficient.
 
-Nothing on the MOZA, Pit House or SimHub is changed, so "restore" is a byte-exact proof that the owner
-install, Documents/fh2 and the private copy's inputs are unchanged, plus a closed-process census.
+The static check pins the reviewed mechanisms in the exact source; it is not an exhaustive output proof and
+not a physical measurement. Nothing on the MOZA, Pit House or SimHub is changed; "restore" is a full-SHA-256
+before/after proof of the owner install and Documents/fh2 plus an exact PID+birth+image closure census.
 
   python -I fh2_force_mute.py check --tree <734fff4 checkout with SDK e223>
   python -I fh2_force_mute.py selftest
   python -I fh2_force_mute.py census
   python -I fh2_force_mute.py prepare --root <private> [--owner <install>]
   python -I fh2_force_mute.py verify --root <private>
-  python -I fh2_force_mute.py run --root <private> --go <event> [--seconds 600]
+  python -I fh2_force_mute.py run --root <private> --go <event> --plan-sha256 H --baseline-sha256 H [--seconds 600]
 
-run sends no OS input (scripted pad and in-process captures only); take the Rig-Lease outside it.
+run sends no OS input (scripted pad and in-process captures only). It requires the named Rig-Lease
+(Rig-Lease.ps1 -Enter -Name vibe, purpose containing GO<event>) and never releases it: release only when
+result.json says custody_clear, otherwise keep the lease and report. Owner activity is recorded, not a gate
+(kole538387); the owner or kole stops a run by creating <root>/STOP.
 """
 
 from __future__ import annotations
 
 import argparse
 import ctypes
+import ctypes.wintypes as wt
 import hashlib
 import json
 import os
@@ -111,28 +117,32 @@ MUTE = {
     "pad_chord_debug_overlay": "",
     "mnk_mode": None,
 }
-# Layer B: every SDL3 Windows joystick backend that could see a wheel base.
-SDL_ENV = {
-    "SDL_JOYSTICK_DIRECTINPUT": "0",  # also gates the DirectInput haptic backend
-    "SDL_JOYSTICK_RAWINPUT": "0",
-    "SDL_JOYSTICK_WGI": "0",
-    "SDL_JOYSTICK_GAMEINPUT": "0",
-    "SDL_JOYSTICK_HIDAPI": "0",
-    "SDL_XINPUT_ENABLED": "0",
-}
-REFUSE_PROCESSES = ("pit house", "mozapithouse", "simhub", "fh2.exe")  # FH2-only Pit House rule
+# Layer B: every SDL3 Windows joystick backend, and every HIDAPI driver-enable hint (the static check derives
+# the set each *_IsEnabled reads from the exact SDL source and requires it to be covered here).
+SDL_BACKENDS = ("SDL_JOYSTICK_DIRECTINPUT", "SDL_JOYSTICK_RAWINPUT", "SDL_JOYSTICK_WGI", "SDL_JOYSTICK_GAMEINPUT",
+                "SDL_XINPUT_ENABLED", "SDL_JOYSTICK_HIDAPI")
+HIDAPI_DRIVER_HINTS = (
+    "SDL_JOYSTICK_HIDAPI_8BITDO", "SDL_JOYSTICK_HIDAPI_FLYDIGI", "SDL_JOYSTICK_HIDAPI_GAMECUBE",
+    "SDL_JOYSTICK_HIDAPI_GAMESIR", "SDL_JOYSTICK_HIDAPI_GIP", "SDL_JOYSTICK_HIDAPI_JOY_CONS",
+    "SDL_JOYSTICK_HIDAPI_LG4FF", "SDL_JOYSTICK_HIDAPI_LUNA", "SDL_JOYSTICK_HIDAPI_NINTENDO_CLASSIC",
+    "SDL_JOYSTICK_HIDAPI_PS3", "SDL_JOYSTICK_HIDAPI_PS3_SIXAXIS_DRIVER", "SDL_JOYSTICK_HIDAPI_PS4",
+    "SDL_JOYSTICK_HIDAPI_PS5", "SDL_JOYSTICK_HIDAPI_SHIELD", "SDL_JOYSTICK_HIDAPI_SINPUT",
+    "SDL_JOYSTICK_HIDAPI_STADIA", "SDL_JOYSTICK_HIDAPI_STEAM", "SDL_JOYSTICK_HIDAPI_STEAMDECK",
+    "SDL_JOYSTICK_HIDAPI_STEAM_HORI", "SDL_JOYSTICK_HIDAPI_SWITCH", "SDL_JOYSTICK_HIDAPI_SWITCH2",
+    "SDL_JOYSTICK_HIDAPI_WII", "SDL_JOYSTICK_HIDAPI_XBOX", "SDL_JOYSTICK_HIDAPI_XBOX_360",
+    "SDL_JOYSTICK_HIDAPI_XBOX_360_WIRELESS", "SDL_JOYSTICK_HIDAPI_XBOX_ONE", "SDL_JOYSTICK_HIDAPI_ZUIKI",
+)
+SDL_FENCE = {name: "0" for name in SDL_BACKENDS + HIDAPI_DRIVER_HINTS}
+PRIVATE_PARENT = Path("E:/Source/_work")
+SCHEMA = "dbce.fh2-force-mute-smoke@2"
+LEASE_DIR = Path(os.environ.get("LOCALAPPDATA", "C:/missing")) / "dbce"
+REFUSE_PROCESSES = ("pit house", "mozapithouse", "simhub", "fh2.exe")  # FH2-only Pit House rule; SimHub per Nov 2 clearance
 # Scripted pad (in-process, synthetic): advance boot prompts only; no stick steering (STD-039).
 BUTTONS = "45:a,60:a,75:start,90:a,105:a,120:a,150:a,180:a,210:a,240:start,270:a"
 
 OUTPUT_API = re.compile(
     r"\b(SDL_Rumble\w*|SDL_SendGamepadEffect|SDL_SendJoystickEffect|SDL_\w*Haptic\w*|SDL_SetGamepadLED|"
     r"SDL_SetJoystickLED|SDL_hid_write|SDL_hid_send_feature_report|XInputSetState_?|sendto|WSASendTo)\s*\(")
-# Expected output call sites per file in the exact source (calls, not declarations).
-OUTPUT_SITES = {
-    S + "src/input/sdl/sdl_input_driver.cpp": None,  # counted below, every site behind wheel_/gamepad gates
-    S + "src/input/xinput/xinput_input_driver.cpp": None,
-    "windows/src/fh2_telemetry.cpp": 1,
-}
 
 ANCHORS = [  # (file, regex, expected count); DOTALL multiline anchors on the pinned bytes
     (S + "src/input/sdl/sdl_input_driver.cpp",
@@ -250,6 +260,9 @@ def static_check(tree: Path, verify_git: bool = True) -> dict:
         sdk = tree / S
         ok("SDK HEAD", git(sdk, "rev-parse", "HEAD") == SDK_HEAD, git(sdk, "rev-parse", "HEAD"))
         ok("SDK clean", git(sdk, "status", "--porcelain") == "", "dirty SDK")
+        sdl = tree / S / "thirdparty/sdl3"
+        ok("SDL HEAD", git(sdl, "rev-parse", "HEAD") == SDL_HEAD, git(sdl, "rev-parse", "HEAD"))
+        ok("SDL clean", git(sdl, "status", "--porcelain") == "", "dirty SDL")
     texts = {}
     for rel, want in PINS.items():
         data = (tree / rel).read_bytes()
@@ -299,6 +312,38 @@ def static_check(tree: Path, verify_git: bool = True) -> dict:
                  if re.search(r"SDL_HINT_OVERRIDE|SDL_SetHint\w*\(\s*SDL_HINT_(JOYSTICK_(DIRECTINPUT|RAWINPUT|WGI|GAMEINPUT|HIDAPI)\b|XINPUT_ENABLED)",
                               p.read_text("utf-8", "replace"))]
     ok("no SDK override of SDL backend hints", not overrides, str(overrides))
+
+    # Every hint a HIDAPI driver's IsEnabled reads must be fenced to 0 (an enabled per-driver hint beats HIDAPI=0).
+    sdl_src = tree / L
+    if verify_git:  # full tree only; the tamper control copies pinned files alone
+        macros = dict(re.findall(r'#define (SDL_HINT_\w+) "(\w+)"',
+                                 (tree / S / "thirdparty/sdl3/include/SDL3/SDL_hints.h").read_text("utf-8", "replace")))
+        consulted, drivers = set(), 0
+        for p in sorted((sdl_src / "joystick/hidapi").glob("*.c")):
+            text = p.read_text("utf-8", "replace")
+            local: dict[str, list[str]] = {}
+            for name, value in re.findall(r"#define (SDL_HINT_\w+)[ \t]+([^\n]*)", text):
+                local.setdefault(name, []).append(value)
+
+            def resolve(macro: str, seen: frozenset = frozenset()) -> set[str]:
+                if macro in macros:
+                    return {macros[macro]}
+                if macro in local and macro not in seen:  # a file-local default: follow every definition
+                    return set().union(*(resolve(m, seen | {macro}) for v in local[macro]
+                                         for m in re.findall(r"\bSDL_HINT_\w+", v))) if any(
+                        re.search(r"\bSDL_HINT_\w+", v) for v in local[macro]) else set()
+                return {macro}  # unknown: reported, so the check fails closed
+
+            for body in re.findall(r"static bool \w+_IsEnabled\(void\)\s*\{(.*?)\n\}", text, re.S):
+                drivers += 1
+                for macro in re.findall(r"\bSDL_HINT_\w+", body):
+                    consulted |= resolve(macro)
+        result["hidapi_drivers"], result["hidapi_hints"] = drivers, sorted(consulted)
+        ok("HIDAPI drivers found", drivers >= 20, str(drivers))
+        ok("every HIDAPI enable hint fenced", consulted <= set(SDL_FENCE), str(sorted(consulted - set(SDL_FENCE))))
+        haptic_hints = re.findall(r"SDL_GetHint\w*\(", "".join(p.read_text("utf-8", "replace")
+                                                             for p in (sdl_src / "haptic/hidapi").glob("*.c")))
+        ok("HIDAPI haptic reads no own enable hint", not haptic_hints, str(haptic_hints))
     virtual = [p.relative_to(tree).as_posix() for p in (tree / S).rglob("*") if p.suffix in (".cpp", ".h")
                and "thirdparty" not in p.relative_to(tree / S).parts and not p.name.startswith("joystick_mapping")
                and "VirtualJoystick" in p.read_text("utf-8", "replace")]
@@ -319,7 +364,7 @@ def static_check(tree: Path, verify_git: bool = True) -> dict:
 # ---------------------------------------------------------------------------------------------- profile
 
 def launch_profile(root: Path, owner: Path) -> dict:
-    root = root.resolve()
+    root = Path(os.path.abspath(root))
     out = root / "out"
     values = MUTE | {
         "pad_log_vibration": True,
@@ -342,11 +387,24 @@ def launch_profile(root: Path, owner: Path) -> dict:
     write_roots = {"config": root / "bin" / "fh2.toml", "logs": root / "bin" / "logs",
                    "captures": root / "bin" / "capturas", "user": root / "user", "cache": root / "user" / "cache",
                    "ffb_trace": out / "ffb-trace.csv"}
-    return {"argv": argv, "env": dict(SDL_ENV), "toml": toml, "values": values,
+    return {"argv": argv, "env": dict(SDL_FENCE), "toml": toml, "values": values,
             "write_roots": {k: str(v) for k, v in write_roots.items()}}
 
 
-def effective(profile: dict, toml_text: str | None = None, env: dict | None = None) -> dict:
+def launch_env(inherited: dict) -> dict:
+    """The inherited environment with every SDL_* variable removed, then the fence applied."""
+    env = {k: v for k, v in inherited.items() if not k.upper().startswith("SDL_")}
+    env.update(SDL_FENCE)
+    return env
+
+
+def env_errors(env: dict) -> list[str]:
+    errors = [f"env {k} = {env.get(k)!r}, want '0'" for k in SDL_FENCE if env.get(k) != "0"]
+    errors += [f"env unexpected {k}" for k in env if k.upper().startswith("SDL_") and k not in SDL_FENCE]
+    return errors
+
+
+def effective(profile: dict, toml_text: str | None = None) -> dict:
     """Model the SDK precedence (config < environment < command line) for the mute cvars."""
     import tomllib
     eff: dict = {}
@@ -356,24 +414,22 @@ def effective(profile: dict, toml_text: str | None = None, env: dict | None = No
         m = re.fullmatch(r"--(no-)?(\w+)(?:=(.*))?", a, re.S)
         if m:
             eff[m.group(2)] = ("cli", False if m.group(1) else True if m.group(3) is None else m.group(3))
-    eff["__env__"] = env if env is not None else profile["env"]
     return eff
 
 
-def profile_errors(profile: dict, owner: Path, toml_text: str | None = None, env: dict | None = None) -> list[str]:
-    eff = effective(profile, toml_text, env)
+def profile_errors(profile: dict, owner: Path, toml_text: str | None = None) -> list[str]:
+    eff = effective(profile, toml_text)
     errors = []
     for name, value in MUTE.items():
         want = False if value is None else value
         got = eff.get(name)
         if got is None or got[0] != "cli" or str(got[1]).lower() != str(want).lower():
             errors.append(f"{name}: effective {got}, want cli {want!r}")
-    for k, v in SDL_ENV.items():
-        if eff["__env__"].get(k) != v:
-            errors.append(f"env {k} missing")
-    owner_r = str(owner.resolve()).lower()
+    errors += env_errors(launch_env(dict(os.environ) | profile["env"]))
+    if profile["env"] != SDL_FENCE:
+        errors.append("profile env differs from the fence")
     for k, v in profile["write_roots"].items():
-        if str(Path(v).resolve()).lower().startswith(owner_r):
+        if overlaps(Path(v), owner):
             errors.append(f"write root {k} inside owner install: {v}")
     for a in profile["argv"][1:]:
         if re.fullmatch(r"--\w+=", a) and a[2:-1] not in MUTE:
@@ -381,16 +437,48 @@ def profile_errors(profile: dict, owner: Path, toml_text: str | None = None, env
     return errors
 
 
+def overlaps(a: Path, b: Path) -> bool:
+    x, y = os.path.normcase(os.path.realpath(a)), os.path.normcase(os.path.realpath(b))
+    return x == y or x.startswith(y.rstrip("\\/") + os.sep) or y.startswith(x.rstrip("\\/") + os.sep)
+
+
+def root_errors(root: Path, owner: Path, must_exist: bool) -> list[str]:
+    """Canonical private root under E:/Source/_work, no reparse point anywhere on its path, no owner overlap."""
+    errors = []
+    absolute = Path(os.path.abspath(root))
+    if os.path.normcase(os.path.realpath(absolute)) != os.path.normcase(str(absolute)):
+        errors.append(f"{root} is not canonical (reparse point or relative parts)")
+    probe = absolute
+    while True:
+        if probe.exists() and probe.is_symlink() or (probe.exists() and os.path.isjunction(probe)):
+            errors.append(f"reparse point on path: {probe}")
+        if probe.parent == probe:
+            break
+        probe = probe.parent
+    parent = os.path.normcase(str(PRIVATE_PARENT))
+    if os.path.normcase(str(absolute.parent)) != parent:
+        errors.append(f"{root} must be a direct child of {PRIVATE_PARENT}")
+    if overlaps(absolute, owner):
+        errors.append(f"{root} overlaps the owner install")
+    if must_exist != absolute.exists():
+        errors.append(f"{root} {'missing' if must_exist else 'already exists'}")
+    return errors
+
+
 # ---------------------------------------------------------------------------------------------- owner bytes
 
 def documents_fh2() -> Path:
     buf = ctypes.create_unicode_buffer(260)
-    ctypes.windll.shell32.SHGetFolderPathW(None, 5, None, 0, buf)  # CSIDL_PERSONAL, the SDK's FOLDERID_Documents
+    fn = ctypes.WinDLL("shell32").SHGetFolderPathW
+    fn.argtypes = [wt.HWND, ctypes.c_int, wt.HANDLE, wt.DWORD, wt.LPWSTR]
+    fn.restype = ctypes.c_long
+    if fn(None, 5, None, 0, buf) != 0:  # CSIDL_PERSONAL, the SDK's FOLDERID_Documents
+        raise Fail("cannot resolve Documents")
     return Path(buf.value) / "fh2"
 
 
-def snapshot(roots: dict[str, Path], hash_limit: int = 64 << 20) -> dict:
-    """Full SHA-256 for every file up to hash_limit, size+mtime+attrs beyond (the 7.4 GB game/ tree)."""
+def snapshot(roots: dict[str, Path]) -> dict:
+    """Full SHA-256 plus size, mtime and attributes for every file and directory entry."""
     snap = {}
     for label, root in roots.items():
         if not root.exists():
@@ -399,13 +487,12 @@ def snapshot(roots: dict[str, Path], hash_limit: int = 64 << 20) -> dict:
         files = {}
         for p in sorted(root.rglob("*")) if root.is_dir() else [root]:
             st = p.stat()
+            key = p.relative_to(root).as_posix() if root.is_dir() else p.name
             if p.is_dir():
-                files[p.relative_to(root).as_posix() + "/"] = {"mtime": st.st_mtime_ns}
+                files[key + "/"] = {"mtime": st.st_mtime_ns, "attrs": getattr(st, "st_file_attributes", 0)}
                 continue
-            files[p.relative_to(root).as_posix() if root.is_dir() else p.name] = {
-                "size": st.st_size, "mtime": st.st_mtime_ns,
-                "attrs": getattr(st, "st_file_attributes", 0),
-                "sha256": sha256(p) if st.st_size <= hash_limit else None}
+            files[key] = {"size": st.st_size, "mtime": st.st_mtime_ns,
+                          "attrs": getattr(st, "st_file_attributes", 0), "sha256": sha256(p)}
         snap[label] = files
     return snap
 
@@ -429,64 +516,114 @@ def owner_roots(owner: Path) -> dict[str, Path]:
             "owner_game": owner / "game", "owner_top_toml": owner / "fh2.toml", "documents_fh2": documents_fh2()}
 
 
-# ---------------------------------------------------------------------------------------------- processes
+# ---------------------------------------------------------------------------------------------- Win32
 
-def processes() -> list[tuple[int, str, str]]:
+K32 = ctypes.WinDLL("kernel32", use_last_error=True)
+U32 = ctypes.WinDLL("user32", use_last_error=True)
+WNDENUMPROC = ctypes.WINFUNCTYPE(wt.BOOL, wt.HWND, wt.LPARAM)
+
+
+class LASTINPUTINFO(ctypes.Structure):
+    _fields_ = [("cbSize", wt.UINT), ("dwTime", wt.DWORD)]
+
+
+for _fn, _args, _res in (
+        (U32.GetLastInputInfo, [ctypes.POINTER(LASTINPUTINFO)], wt.BOOL),
+        (K32.GetTickCount, [], wt.DWORD),
+        (U32.GetForegroundWindow, [], wt.HWND),
+        (U32.GetWindowThreadProcessId, [wt.HWND, ctypes.POINTER(wt.DWORD)], wt.DWORD),
+        (U32.GetWindowTextW, [wt.HWND, wt.LPWSTR, ctypes.c_int], ctypes.c_int),
+        (U32.EnumWindows, [WNDENUMPROC, wt.LPARAM], wt.BOOL),
+        (U32.IsWindowVisible, [wt.HWND], wt.BOOL),
+        (U32.PostMessageW, [wt.HWND, wt.UINT, wt.WPARAM, wt.LPARAM], wt.BOOL),
+        (K32.GetProcessTimes, [wt.HANDLE] + [ctypes.POINTER(wt.FILETIME)] * 4, wt.BOOL),
+        (K32.QueryFullProcessImageNameW, [wt.HANDLE, wt.DWORD, wt.LPWSTR, ctypes.POINTER(wt.DWORD)], wt.BOOL)):
+    _fn.argtypes, _fn.restype = _args, _res
+
+
+def idle_seconds() -> float:
+    info = LASTINPUTINFO(ctypes.sizeof(LASTINPUTINFO), 0)
+    U32.GetLastInputInfo(ctypes.byref(info))
+    return ((K32.GetTickCount() - info.dwTime) & 0xFFFFFFFF) / 1000.0
+
+
+def window_pid(hwnd) -> int:
+    pid = wt.DWORD(0)
+    U32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+    return pid.value
+
+
+def foreground() -> dict:
+    hwnd = U32.GetForegroundWindow()
+    title = ctypes.create_unicode_buffer(256)
+    U32.GetWindowTextW(hwnd, title, 256)
+    return {"hwnd": int(hwnd or 0), "pid": window_pid(hwnd) if hwnd else 0, "title": title.value}
+
+
+def handle_identity(handle: int) -> dict:
+    """Birth (FILETIME) and image of a process through the handle we own, immune to PID reuse."""
+    t = [wt.FILETIME() for _ in range(4)]
+    if not K32.GetProcessTimes(wt.HANDLE(handle), *[ctypes.byref(x) for x in t]):
+        raise Fail(f"GetProcessTimes failed {ctypes.get_last_error()}")
+    size = wt.DWORD(1024)
+    buf = ctypes.create_unicode_buffer(1024)
+    if not K32.QueryFullProcessImageNameW(wt.HANDLE(handle), 0, buf, ctypes.byref(size)):
+        raise Fail(f"QueryFullProcessImageNameW failed {ctypes.get_last_error()}")
+    return {"birth_filetime": (t[0].dwHighDateTime << 32) | t[0].dwLowDateTime, "image": buf.value}
+
+
+def game_windows(pid: int) -> list[int]:
+    found = []
+
+    def cb(hwnd, _):
+        if window_pid(hwnd) == pid and U32.IsWindowVisible(hwnd):
+            found.append(int(hwnd))
+        return True
+    U32.EnumWindows(WNDENUMPROC(cb), 0)
+    return found
+
+
+def processes() -> list[dict]:
     out = subprocess.run(["powershell", "-NoProfile", "-Command",
-                          "Get-CimInstance Win32_Process | ForEach-Object { \"$($_.ProcessId)`t$($_.Name)`t$($_.ExecutablePath)\" }"],
-                         capture_output=True, text=True, check=True).stdout
+                          "Get-CimInstance Win32_Process | ForEach-Object { \"$($_.ProcessId)`t$($_.ParentProcessId)`t"
+                          "$($_.CreationDate.ToFileTimeUtc())`t$($_.Name)`t$($_.ExecutablePath)\" }"],
+                         capture_output=True, text=True, timeout=60, check=True).stdout
     rows = []
     for line in out.splitlines():
-        parts = line.split("\t")
-        if len(parts) == 3 and parts[0].isdigit():
-            rows.append((int(parts[0]), parts[1], parts[2]))
+        p = line.split("\t")
+        if len(p) == 5 and p[0].isdigit():
+            rows.append({"pid": int(p[0]), "ppid": int(p[1] or 0), "birth": int(p[2]) if p[2].isdigit() else 0,
+                         "name": p[3], "path": p[4]})
     return rows
 
 
 def census_refusals(rows) -> list[str]:
-    return [f"{pid} {name} {path}" for pid, name, path in rows
-            if any(r in (name + " " + path).lower() for r in REFUSE_PROCESSES)]
+    return [f"{r['pid']} {r['name']} {r['path']}" for r in rows
+            if any(x in (r["name"] + " " + r["path"]).lower() for x in REFUSE_PROCESSES)]
 
 
-def idle_seconds() -> float:
-    class LII(ctypes.Structure):
-        _fields_ = [("cbSize", ctypes.c_uint), ("dwTime", ctypes.c_uint)]
-    info = LII(ctypes.sizeof(LII), 0)
-    ctypes.windll.user32.GetLastInputInfo(ctypes.byref(info))
-    return ((ctypes.windll.kernel32.GetTickCount() - info.dwTime) & 0xFFFFFFFF) / 1000.0
-
-
-def foreground() -> dict:
-    u = ctypes.windll.user32
-    hwnd = u.GetForegroundWindow()
-    pid = ctypes.c_uint(0)
-    u.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
-    title = ctypes.create_unicode_buffer(256)
-    u.GetWindowTextW(hwnd, title, 256)
-    return {"hwnd": int(hwnd or 0), "pid": pid.value, "title": title.value}
-
-
-def close_windows(pid: int) -> int:
-    u = ctypes.windll.user32
-    sent = []
-
-    @ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)
-    def cb(hwnd, _):
-        p = ctypes.c_uint(0)
-        u.GetWindowThreadProcessId(hwnd, ctypes.byref(p))
-        if p.value == pid and u.IsWindowVisible(hwnd):
-            u.PostMessageW(hwnd, 0x0010, 0, 0)  # WM_CLOSE
-            sent.append(hwnd)
-        return True
-    u.EnumWindows(cb, 0)
-    return len(sent)
+def lease_errors(go: str) -> list[str]:
+    """The named vibe lease must be the current slot owner and name this GO."""
+    keep, slot = LEASE_DIR / "claude-lease-vibe.json", LEASE_DIR / "test-slot.txt"
+    try:
+        token = json.loads(keep.read_text(encoding="utf-8-sig"))["token"]
+        current = slot.read_text(encoding="utf-8-sig").splitlines()[0].strip()
+    except (OSError, KeyError, IndexError, ValueError) as e:
+        return [f"lease unreadable: {e}"]
+    errors = []
+    if current != token:
+        errors.append("vibe lease is not the current slot owner")
+    if f"GO{go}" not in token or " lease=" not in token:
+        errors.append(f"lease purpose does not name GO{go}")
+    return errors
 
 
 # ---------------------------------------------------------------------------------------------- commands
 
 def cmd_prepare(root: Path, owner: Path) -> dict:
-    if root.exists() and any(root.iterdir()):
-        raise Fail(f"{root} exists and is not empty; choose a fresh session root")
+    errors = root_errors(root, owner, must_exist=False)
+    if errors:
+        raise Fail("; ".join(errors))
     for name, want in BIN.items():
         got = sha256(owner / "bin" / name).upper()
         if got != want:
@@ -494,6 +631,11 @@ def cmd_prepare(root: Path, owner: Path) -> dict:
     rows = census_refusals(processes())
     if rows:
         raise Fail("refused, running: " + "; ".join(rows))
+    profile = launch_profile(root, owner)
+    errors = profile_errors(profile, owner)
+    if errors:
+        raise Fail("; ".join(errors))
+    baseline = snapshot(owner_roots(owner))  # before any private write
     (root / "bin").mkdir(parents=True)
     (root / "out").mkdir()
     (root / "user" / "cache").mkdir(parents=True)
@@ -501,13 +643,8 @@ def cmd_prepare(root: Path, owner: Path) -> dict:
         shutil.copy2(owner / "bin" / name, root / "bin" / name)
         if sha256(root / "bin" / name).upper() != BIN[name]:
             raise Fail(f"private copy {name} hash mismatch")
-    profile = launch_profile(root, owner)
-    errors = profile_errors(profile, owner)
-    if errors:
-        raise Fail("; ".join(errors))
     (root / "bin" / "fh2.toml").write_text(profile["toml"], encoding="utf-8", newline="\n")
-    baseline = snapshot(owner_roots(owner))
-    plan = {"schema": "dbce.fh2-force-mute-smoke@1", "app": APP_HEAD, "sdk": SDK_HEAD, "owner": str(owner),
+    plan = {"schema": SCHEMA, "app": APP_HEAD, "sdk": SDK_HEAD, "owner": str(owner), "root": str(root),
             "bin": BIN, "profile": profile, "toml_sha256": sha256(root / "bin" / "fh2.toml"),
             "tool_sha256": sha256(Path(__file__)), "created": time.strftime("%Y-%m-%dT%H:%M:%S%z")}
     (root / "plan.json").write_text(json.dumps(plan, indent=1), encoding="utf-8")
@@ -516,86 +653,129 @@ def cmd_prepare(root: Path, owner: Path) -> dict:
             "baseline_sha256": sha256(root / "baseline.json")}
 
 
-def cmd_verify(root: Path) -> dict:
+def admitted_plan(root: Path, plan_sha: str | None, baseline_sha: str | None) -> dict:
+    if plan_sha and sha256(root / "plan.json").lower() != plan_sha.lower():
+        raise Fail("plan.json is not the admitted plan")
+    if baseline_sha and sha256(root / "baseline.json").lower() != baseline_sha.lower():
+        raise Fail("baseline.json is not the admitted baseline")
     plan = json.loads((root / "plan.json").read_text(encoding="utf-8"))
+    owner = Path(plan["owner"])
+    errors = root_errors(root, owner, must_exist=True)
+    if plan.get("schema") != SCHEMA or plan.get("bin") != BIN or Path(plan["root"]) != Path(os.path.abspath(root)):
+        errors.append("plan schema/bin/root mismatch")
+    if plan["profile"] != json.loads(json.dumps(launch_profile(root, owner))):
+        errors.append("plan profile differs from the regenerated profile")
+    errors += profile_errors(plan["profile"], owner)
+    if sha256(Path(__file__)) != plan["tool_sha256"]:
+        errors.append("tool changed since prepare")
+    if errors:
+        raise Fail("; ".join(errors))
+    return plan
+
+
+def cmd_verify(root: Path, plan: dict | None = None) -> dict:
+    plan = plan or json.loads((root / "plan.json").read_text(encoding="utf-8"))
     owner = Path(plan["owner"])
     changes = diff(json.loads((root / "baseline.json").read_text(encoding="utf-8")), snapshot(owner_roots(owner)))
     bins = {n: sha256(root / "bin" / n).upper() == h for n, h in plan["bin"].items()}
-    toml_same = sha256(root / "bin" / "fh2.toml") == plan["toml_sha256"]
     running = census_refusals(processes())
     return {"pass": not changes and all(bins.values()) and not running, "owner_changes": changes,
-            "private_bins_unchanged": bins, "private_toml_unchanged": toml_same, "refused_processes": running}
+            "private_bins_unchanged": bins, "refused_processes": running}
 
 
 def evidence(root: Path) -> dict:
     logs = sorted((root / "bin" / "logs").glob("*.log"))
-    text = "\n".join(p.read_text("utf-8", "replace") for p in logs)
-    trace = root / "out" / "ffb-trace.csv"
+    lines = "\n".join(p.read_text("utf-8", "replace") for p in logs).splitlines()
     caps = sorted((root / "bin" / "capturas").glob("*.png"))
     return {
         "logs": [str(p) for p in logs],
-        "sdl_wheel_lines": [l for l in text.splitlines() if "SDL wheel" in l],
-        "sdl_gamepad_opened": [l for l in text.splitlines() if "OnControllerDeviceAdded" in l],
-        "telemetry_started_port0": "telemetry: loopback sender started" in text,
-        "vibration_requests": sum("Vibration user" in l for l in text.splitlines()),
-        "ffb_trace_rows": max(0, len(trace.read_text("utf-8", "replace").splitlines()) - 1) if trace.exists() else None,
-        "captures": [str(p) for p in caps],
-        "title_started": bool(re.search(r"(?i)launching module|title (started|module)|module loaded", text)),
-        "crash": bool(re.search(r"(?i)unhandled exception|access violation|fatal", text)),
+        "sdl_input_initialized": any("SDL input driver initialized successfully" in l for l in lines),
+        "sdl_wheel_lines": [l for l in lines if "SDL wheel" in l],
+        "sdl_gamepad_opened": [l for l in lines if "OnControllerDeviceAdded" in l],
+        "telemetry_sender_started": any("telemetry: loopback sender started" in l for l in lines),
+        "vibration_requests": sum("Vibration user" in l for l in lines),
+        "captures": [str(p) for p in caps],  # only the command line asks for captures: proves it was applied
+        "crash_lines": [l for l in lines if re.search(r"(?i)unhandled exception|access violation|\[critical\]", l)],
     }
 
 
-def cmd_run(root: Path, go: str, seconds: int) -> dict:
-    plan = json.loads((root / "plan.json").read_text(encoding="utf-8"))
-    if sha256(Path(__file__)) != plan["tool_sha256"]:
-        raise Fail("tool changed since prepare")
-    pre = cmd_verify(root)
-    if not pre["pass"] or not pre["private_toml_unchanged"]:
-        raise Fail("preflight: " + json.dumps(pre))
-    if idle_seconds() < 180:
-        raise Fail(f"owner input {idle_seconds():.0f}s ago (< 180 s)")
-    res: dict = {"go": go, "seconds": seconds, "foreground_before": foreground(), "aborts": []}
-    env = dict(os.environ) | plan["profile"]["env"]
-    stdout = open(root / "out" / "stdout.txt", "wb")
-    stderr = open(root / "out" / "stderr.txt", "wb")
+def cmd_run(root: Path, go: str, seconds: int, plan_sha: str, baseline_sha: str) -> dict:
+    root = Path(os.path.abspath(root))
+    plan = admitted_plan(root, plan_sha, baseline_sha)
+    errors = lease_errors(go)
+    pre = cmd_verify(root, plan)
+    if errors or not pre["pass"]:
+        raise Fail("preflight: " + json.dumps({"lease": errors, "verify": pre}))
+    res: dict = {"go": go, "seconds": seconds, "plan_sha256": plan_sha, "baseline_sha256": baseline_sha,
+                 "owner_idle_s_start": round(idle_seconds(), 1), "foreground_before": foreground(),
+                 "owner_input_events": 0, "stop": None, "errors": []}
+    image = os.path.normcase(str(root / "bin" / "fh2.exe"))
+    proc, ident = None, None
     t0 = time.monotonic()
-    proc = subprocess.Popen(plan["profile"]["argv"], cwd=root / "bin", env=env, stdout=stdout, stderr=stderr)
-    res["pid"] = proc.pid
-    last_idle = idle_seconds()
-    while proc.poll() is None and time.monotonic() - t0 < seconds:
-        time.sleep(1.0)
-        now_idle = idle_seconds()
-        if now_idle + 1.5 < last_idle:  # this run sends no OS input, so any input is the owner
-            res["aborts"].append("owner input")
-            break
-        last_idle = now_idle
-    res["alive_at_end"] = proc.poll() is None
-    res["elapsed_s"] = round(time.monotonic() - t0, 1)
-    if proc.poll() is None:
-        res["wm_close_windows"] = close_windows(proc.pid)
-        try:
-            proc.wait(30)
-        except subprocess.TimeoutExpired:
-            proc.kill()  # exact owned handle, after graceful retry; forces are already zero/unopened
-            res["forced"] = True
-            proc.wait(10)
-    res["exit_code"] = proc.returncode
-    stdout.close()
-    stderr.close()
-    res["foreground_after"] = foreground()
-    res["evidence"] = evidence(root)
-    res["postflight"] = cmd_verify(root)
-    e = res["evidence"]
-    res["gates"] = {
-        "M_mute": not e["sdl_wheel_lines"] and not e["sdl_gamepad_opened"] and res["postflight"]["pass"],
-        "G1_boot": res["elapsed_s"] >= 60 and not e["crash"],
-        "G2_frames": len(e["captures"]) >= 3,
-        "G3_menu": "owner/agent review of captures",
-        "R_restore": res["postflight"]["pass"] and not res["postflight"]["owner_changes"],
-    }
-    (root / "result.json").write_text(json.dumps(res, indent=1), encoding="utf-8")
-    res["result_sha256"] = sha256(root / "result.json")
-    return res
+    try:
+        with open(root / "out" / "stdout.txt", "wb") as so, open(root / "out" / "stderr.txt", "wb") as se:
+            proc = subprocess.Popen(plan["profile"]["argv"], cwd=root / "bin", stdout=so, stderr=se,
+                                    env=launch_env(dict(os.environ)))
+        ident = {"pid": proc.pid} | handle_identity(int(proc._handle))
+        res["process"] = ident
+        (root / "out" / "process-receipt.json").write_text(json.dumps(ident), encoding="utf-8")
+        if os.path.normcase(ident["image"]) != image:
+            raise Fail(f"launched image {ident['image']} is not the private copy")
+        last_idle = idle_seconds()
+        while proc.poll() is None and time.monotonic() - t0 < seconds:
+            if (root / "STOP").exists():
+                res["stop"] = "STOP file (owner/kole reclaim)"
+                break
+            time.sleep(1.0)
+            now = idle_seconds()
+            if now + 1.5 < last_idle:
+                res["owner_input_events"] += 1  # recorded only (kole538387); this run sends no OS input
+            last_idle = now
+        res["alive_at_end"] = proc.poll() is None
+    except Exception as e:  # observer failures never skip cleanup
+        res["errors"].append(repr(e))
+    finally:
+        res["elapsed_s"] = round(time.monotonic() - t0, 1)
+        if proc is not None:
+            try:
+                if proc.poll() is None:
+                    hwnds = game_windows(proc.pid) if handle_identity(int(proc._handle)) == {
+                        k: v for k, v in ident.items() if k != "pid"} else []
+                    for h in hwnds:
+                        U32.PostMessageW(wt.HWND(h), 0x0010, 0, 0)  # WM_CLOSE to the verified game's own windows
+                    res["wm_close_windows"] = len(hwnds)
+                    try:
+                        proc.wait(30)
+                    except subprocess.TimeoutExpired:
+                        proc.kill()  # TerminateProcess on our own handle, never a reopened PID
+                        res["forced"] = True
+                        proc.wait(15)
+                res["exit_code"] = proc.returncode
+            except Exception as e:
+                res["errors"].append("cleanup: " + repr(e))
+        rows = processes()
+        lineage = [r for r in rows if os.path.normcase(r["path"] or "") == image
+                   or (ident and r["ppid"] == ident["pid"])]
+        res["remaining_identities"] = lineage
+        res["foreground_after"] = foreground()
+        res["owner_idle_s_end"] = round(idle_seconds(), 1)
+        res["evidence"] = evidence(root)
+        res["postflight"] = cmd_verify(root, plan)
+        exited = proc is not None and proc.poll() is not None
+        res["custody_clear"] = exited and not lineage and not res["errors"]
+        e = res["evidence"]
+        res["gates"] = {
+            # Runtime negative evidence plus a command-line-applied witness; physical isolation is static only.
+            "M_runtime": exited and bool(e["logs"]) and e["sdl_input_initialized"] and e["telemetry_sender_started"]
+                         and bool(e["captures"]) and not e["sdl_wheel_lines"] and not e["sdl_gamepad_opened"],
+            "G1_boot": res["elapsed_s"] >= 60 and not e["crash_lines"] and bool(e["logs"]),
+            "G2_frames": len(e["captures"]) >= 3,
+            "G3_menu": "review of captures",
+            "R_restore": res["postflight"]["pass"],
+        }
+        (root / "result.json").write_text(json.dumps(res, indent=1), encoding="utf-8")
+        res["result_sha256"] = sha256(root / "result.json")
+    return res | {"pass": res["custody_clear"] and res["gates"]["R_restore"]}
 
 
 def cmd_selftest() -> dict:
@@ -614,47 +794,77 @@ def cmd_selftest() -> dict:
         (owner / "bin" / "a.dll").write_bytes(b"one")
         (owner / "game" / "big.bin").write_bytes(b"x" * 100)
         roots = {"bin": owner / "bin", "game": owner / "game", "toml": owner / "fh2.toml"}
-        base = snapshot(roots, hash_limit=50)
-        t("unchanged tree compares equal", diff(base, snapshot(roots, 50)) == [])
+        base = snapshot(roots)
+        mtime = base["bin"]["a.dll"]["mtime"]
+        t("unchanged tree compares equal", diff(base, snapshot(roots)) == [])
         (owner / "bin" / "a.dll").write_bytes(b"two")
-        os.utime(owner / "bin" / "a.dll", ns=(base["bin"]["a.dll"]["mtime"], base["bin"]["a.dll"]["mtime"]))
-        t("same-size same-mtime content change detected", diff(base, snapshot(roots, 50)) != [])
+        os.utime(owner / "bin" / "a.dll", ns=(mtime, mtime))
+        t("same-size same-mtime content change detected", diff(base, snapshot(roots)) != [])
         (owner / "bin" / "a.dll").write_bytes(b"one")
-        os.utime(owner / "bin" / "a.dll", ns=(base["bin"]["a.dll"]["mtime"], base["bin"]["a.dll"]["mtime"]))
-        t("restored bytes compare equal", diff(base, snapshot(roots, 50)) == [])
+        os.utime(owner / "bin" / "a.dll", ns=(mtime, mtime))
+        t("restored bytes compare equal", diff(base, snapshot(roots)) == [])
         (owner / "fh2.toml").write_text("x")
-        t("created owner fh2.toml detected", any("toml" in c for c in diff(base, snapshot(roots, 50))))
+        t("created owner fh2.toml detected", any("toml" in c for c in diff(base, snapshot(roots))))
         (owner / "fh2.toml").unlink()
         (owner / "bin" / "new.log").write_text("x")
-        t("added file detected", any("new.log" in c for c in diff(base, snapshot(roots, 50))))
+        t("added file detected", any("new.log" in c for c in diff(base, snapshot(roots))))
         (owner / "bin" / "new.log").unlink()
-        with open(owner / "game" / "big.bin", "ab") as f:
-            f.write(b"y")
-        t("large-file size change detected", diff(base, snapshot(roots, 50)) != [])
+        big = base["game"]["big.bin"]["mtime"]
+        (owner / "game" / "big.bin").write_bytes(b"x" * 99 + b"y")
+        os.utime(owner / "game" / "big.bin", ns=(big, big))
+        t("game-tree same-size same-mtime change detected (full hash)", diff(base, snapshot(roots)) != [])
 
-        prof = launch_profile(d / "private", owner)
+        prof = launch_profile(PRIVATE_PARENT / "vibe-fh2-selftest", owner)
         t("generated profile passes", profile_errors(prof, owner) == [])
-        loud = prof["toml"].replace("wheel_ffb_strength = 0", "wheel_ffb_strength = 50").replace("wheel_enabled = false", "wheel_enabled = true")
+        loud = prof["toml"].replace("wheel_ffb_strength = 0", "wheel_ffb_strength = 50").replace(
+            "wheel_enabled = false", "wheel_enabled = true")
         t("CLI outranks a loud config", profile_errors(prof, owner, toml_text=loud) == [])
         bad = dict(prof, argv=[a for a in prof["argv"] if a != "--pad_rumble_strength=0"])
         t("missing rumble mute refused", any("pad_rumble_strength" in e for e in profile_errors(bad, owner)))
         bad = dict(prof, argv=[a for a in prof["argv"] if a != "--no-wheel_enabled"])
         t("missing wheel_enabled mute refused", any("wheel_enabled" in e for e in profile_errors(bad, owner)))
-        t("missing DirectInput env refused",
-          any("DIRECTINPUT" in e for e in profile_errors(prof, owner, env={k: v for k, v in SDL_ENV.items() if "DIRECT" not in k})))
-        inside = launch_profile(owner / "x", owner)
-        t("write root inside owner refused", any("inside owner" in e for e in profile_errors(inside, owner)))
+        inherited = {"PATH": "x", "SDL_JOYSTICK_HIDAPI_PS5": "1", "SDL_JOYSTICK_DIRECTINPUT": "1",
+                     "sdl_gamecontrollerconfig": "346e0000,MOZA,a:b0", "SDL_JOYSTICK_HIDAPI_LG4FF": "1"}
+        env = launch_env(inherited)
+        t("inherited per-driver override neutralised", env["SDL_JOYSTICK_HIDAPI_PS5"] == "0"
+          and env["SDL_JOYSTICK_HIDAPI_LG4FF"] == "0" and env["SDL_JOYSTICK_DIRECTINPUT"] == "0")
+        t("inherited mapping removed", "sdl_gamecontrollerconfig" not in env and env["PATH"] == "x")
+        t("sanitized env passes", env_errors(env) == [])
+        t("raw inherited env refused", env_errors(inherited | {k: "0" for k in SDL_BACKENDS}) != [])
+        t("profile env tamper refused", any("fence" in e for e in profile_errors(
+            dict(prof, env={k: v for k, v in SDL_FENCE.items() if "PS5" not in k}), owner)))
+        t("write root inside owner refused", any("inside owner" in e for e in
+                                                 profile_errors(launch_profile(owner / "x", owner), owner)))
+        t("root outside _work refused", root_errors(d / "elsewhere", owner, False) != [])
+        t("root inside owner refused", any("overlaps" in e for e in root_errors(owner / "bin", owner, True)))
+        t("existing root refused for prepare", any("already exists" in e for e in root_errors(owner, owner, False)))
+        link = d / "link"
+        try:
+            os.symlink(owner, link, target_is_directory=True)
+            t("reparse root refused", root_errors(link / "bin", owner, True) != [])
+        except OSError:
+            checks.append({"check": "reparse root refused", "pass": None, "detail": "symlink privilege unavailable"})
         defs = {"pad_ds_trigger_strength": {"type": "INT32", "range": (25, 100), "allowed": None},
                 "wheel_ffb_mode": {"type": "STRING", "range": None, "allowed": ["difference", "off"]}}
         t("out-of-range value refused", check_profile(defs, {"pad_ds_trigger_strength": "0"}) != [])
         t("unknown cvar refused", check_profile(defs, {"wheel_ffb_strenght": "0"}) != [])
         t("disallowed enum refused", check_profile(defs, {"wheel_ffb_mode": "zero"}) != [])
-        t("Pit House refused", census_refusals([(1, "Pit House.exe", "C:/Program Files (x86)/MOZA Pit House/Pit House.exe")]))
-        t("SimHub refused", census_refusals([(2, "SimHubWPF.exe", "C:/Program Files (x86)/SimHub/SimHubWPF.exe")]))
-        t("running fh2 refused", census_refusals([(3, "fh2.exe", "X:/fh2.exe")]))
-        t("unrelated process allowed", not census_refusals([(4, "explorer.exe", "C:/Windows/explorer.exe")]))
-        t("pin mismatch detected", hashlib.sha256(b"tampered").hexdigest() not in PINS.values())
+        row = lambda n, p: {"pid": 1, "ppid": 0, "birth": 0, "name": n, "path": p}
+        t("Pit House refused", census_refusals([row("Pit House.exe", "C:/Program Files (x86)/MOZA Pit House/Pit House.exe")]))
+        t("SimHub refused", census_refusals([row("SimHubWPF.exe", "C:/Program Files (x86)/SimHub/SimHubWPF.exe")]))
+        t("running fh2 refused", census_refusals([row("fh2.exe", "X:/fh2.exe")]))
+        t("unrelated process allowed", not census_refusals([row("explorer.exe", "C:/Windows/explorer.exe")]))
+        t("lease for another GO refused", lease_errors("selftest-never-a-go") != [])
+        t("pointer-width HWND signature", U32.GetForegroundWindow.restype is wt.HWND
+          and U32.PostMessageW.argtypes[0] is wt.HWND)
+        me = handle_identity(_self_handle())
+        t("own-handle identity readable", me["birth_filetime"] > 0 and me["image"].lower().endswith(".exe"))
     return {"pass": True, "checks": checks}
+
+
+def _self_handle() -> int:
+    K32.OpenProcess.argtypes, K32.OpenProcess.restype = [wt.DWORD, wt.BOOL, wt.DWORD], wt.HANDLE
+    return int(K32.OpenProcess(0x1000, False, os.getpid()))  # PROCESS_QUERY_LIMITED_INFORMATION
 
 
 def main() -> int:
@@ -672,6 +882,8 @@ def main() -> int:
     r = sub.add_parser("run")
     r.add_argument("--root", type=Path, required=True)
     r.add_argument("--go", required=True)
+    r.add_argument("--plan-sha256", required=True)
+    r.add_argument("--baseline-sha256", required=True)
     r.add_argument("--seconds", type=int, default=600)
     a = ap.parse_args()
     try:
@@ -703,7 +915,7 @@ def main() -> int:
         elif a.cmd == "verify":
             out = cmd_verify(a.root)
         else:
-            out = cmd_run(a.root, a.go, min(a.seconds, 780))
+            out = cmd_run(a.root, a.go, min(a.seconds, 780), a.plan_sha256, a.baseline_sha256)
     except Fail as e:
         print(json.dumps({"pass": False, "error": str(e)}, indent=1))
         return 1
