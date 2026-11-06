@@ -83,6 +83,9 @@ PINS = {
     L + "joystick/gdk/SDL_gameinputjoystick.cpp": "39cea369f9a948d46bb13c2540bcf5e196b5fd0fa30b5e54d9563015007a9464",
     L + "haptic/windows/SDL_dinputhaptic.c": "82b6bb085f0bd3642eccf9a70092ba438f3d6041f351532efdb43cf7d382ccad",
     L + "haptic/windows/SDL_windowshaptic.c": "06fafd674c09a7e9e01781b8079374f539dfca7320d738205a2fd10644147b42",
+    L + "haptic/SDL_haptic.c": "540a7aa9f9452b952b0e661f42c27a9994ed7a3760155902ca33d6031e30e1db",
+    L + "haptic/hidapi/SDL_hidapihaptic.c": "097b4dc61fee0b2ab1c242fbfabbbdbf1c0b7a34dc2860141fcd0a815e934cf3",
+    S + "src/input/sdl/wheel_mapping.cpp": "854dcc50b204cb3e0af6e0e5380357c84e235aab99d2df0d8b3244c2e817fb91",
     L + "joystick/hidapi/SDL_hidapijoystick.c": "4d8fd0b0459c7b5dc134916b8476dc850641e74db494e798023fbdd3dc701ad5",
     L + "joystick/SDL_gamepad_db.h": "827c90c29e932b4e3da100751ac2b0699dddca2e908a4074c9225cf0f2059daf",
     "windows/src/main.cpp": "793961a7ec7fa58bea5330bb8da08541a1efaa9a848c0f244080a4ec282a0ee6",
@@ -133,8 +136,14 @@ HIDAPI_DRIVER_HINTS = (
     "SDL_JOYSTICK_HIDAPI_XBOX_360_WIRELESS", "SDL_JOYSTICK_HIDAPI_XBOX_ONE", "SDL_JOYSTICK_HIDAPI_ZUIKI",
 )
 SDL_FENCE = {name: "0" for name in SDL_BACKENDS + HIDAPI_DRIVER_HINTS}
+# Route wheel-wgi: the wheel steers through Windows.Gaming.Input, the one backend left on. SDL can open no
+# haptic device for a WGI joystick (both haptic backends admit only their own joystick driver), WGI has no
+# force path for a non-gamepad, and every force cvar keeps its mute value. Only these two cvars differ.
+WHEEL_WGI = MUTE | {"wheel_enabled": True, "wheel_log_inputs": True}
+WGI_FENCE = SDL_FENCE | {"SDL_JOYSTICK_WGI": "1"}
+ROUTES = {"mute": (MUTE, SDL_FENCE), "wheel-wgi": (WHEEL_WGI, WGI_FENCE)}
 PRIVATE_PARENT = Path("E:/Source/_work")
-SCHEMA = "dbce.fh2-force-mute-smoke@2"
+SCHEMA = "dbce.fh2-force-mute-smoke@3"
 LEASE_DIR = Path(os.environ.get("LOCALAPPDATA", "C:/missing")) / "dbce"
 REFUSE_PROCESSES = ("pit house", "mozapithouse", "simhub", "fh2.exe")  # FH2-only Pit House rule; SimHub per Nov 2 clearance
 # Scripted pad (in-process, synthetic): advance boot prompts only; no stick steering (STD-039).
@@ -181,6 +190,29 @@ ANCHORS = [  # (file, regex, expected count); DOTALL multiline anchors on the pi
     (L + "joystick/gdk/SDL_gameinputjoystick.cpp", r"SDL_GetHintBoolean\(SDL_HINT_JOYSTICK_GAMEINPUT, SDL_GAMEINPUT_DEFAULT\)", 1),
     (L + "joystick/hidapi/SDL_hidapijoystick.c", r"SDL_AddHintCallback\(SDL_HINT_JOYSTICK_HIDAPI,", 1),
     (L + "joystick/SDL_gamepad_db.h", r"(?i)346e", 0),  # no built-in MOZA gamepad mapping
+    # Route wheel-wgi: no force can reach a wheel read through WGI.
+    (L + "haptic/windows/SDL_windowshaptic.c",
+     r"bool SDL_SYS_JoystickIsHaptic\(SDL_Joystick \*joystick\)\s*\{\s*if \(joystick->driver != &SDL_WINDOWS_JoystickDriver\) \{\s*return false;", 1),
+    (L + "haptic/hidapi/SDL_hidapihaptic.c",
+     r"bool SDL_HIDAPI_JoystickIsHaptic\(SDL_Joystick \*joystick\)\s*\{.{0,200}?if \(joystick->driver != &SDL_HIDAPI_JoystickDriver\) \{\s*return false;", 1),
+    (L + "haptic/SDL_haptic.c",
+     r"result = SDL_SYS_JoystickIsHaptic\(joystick\) \|\| SDL_HIDAPI_JoystickIsHaptic\(joystick\);", 1),
+    (L + "haptic/SDL_haptic.c",
+     r"SDL_Haptic \*SDL_OpenHapticFromJoystick\(SDL_Joystick \*joystick\)\s*\{.{0,200}?if \(!SDL_IsJoystickHaptic\(joystick\)\) \{\s*SDL_SetError\(", 1),
+    (L + "joystick/windows/SDL_windows_gaming_input.c", r"ForceFeedback", 0),
+    (L + "joystick/windows/SDL_windows_gaming_input.c", r"put_Vibration\(", 2),
+    (L + "joystick/windows/SDL_windows_gaming_input.c",
+     r"static bool WGI_JoystickRumble(Triggers)?\(SDL_Joystick \*joystick, Uint16 \w+, Uint16 \w+\)\s*\{\s*struct joystick_hwdata \*hwdata = joystick->hwdata;\s*if \(hwdata->gamepad\) \{", 2),
+    (L + "joystick/windows/SDL_windows_gaming_input.c", r"&hwdata->gamepad\)", 1),
+    (L + "joystick/windows/SDL_windows_gaming_input.c",
+     r"FromGameController\(wgi\.gamepad_statics2, hwdata->game_controller, &hwdata->gamepad\)", 1),
+    (L + "joystick/windows/SDL_windows_gaming_input.c",
+     r"static bool WGI_JoystickSendEffect\([^)]*\)\s*\{\s*return SDL_Unsupported\(\);", 1),
+    (S + "src/input/sdl/sdl_input_driver.cpp",
+     r"if \(!SDL_IsJoystickHaptic\(joystick\.sdl\)\) \{\s*REXLOG_INFO\(.{0,20}has no force feedback; rumble only\.", 1),
+    (S + "src/input/sdl/sdl_input_driver.cpp", r"if \(mode == WheelFfbMode::kOff \|\| !base\) \{\s*return X_ERROR_SUCCESS;", 1),
+    (S + "src/input/sdl/sdl_input_driver.cpp", r"SDL_RumbleJoystick\(", 2),
+    (S + "src/input/sdl/wheel_mapping.cpp", r"case 0x346E:  // Moza", 1),
     ("windows/CMakeLists.txt", r"fh2_teste_entrada\.cpp", 1),
     ("app/src/fh2_teste_entrada.cpp", r"REXCVAR_DEFINE_STRING\(fh2_teste_botoes,", 1),
     ("app/src/fh2_captura.cpp", r"REXCVAR_DEFINE_INT32\(fh2_captura_cada_s,", 1),
@@ -302,7 +334,8 @@ def static_check(tree: Path, verify_git: bool = True) -> dict:
             writers.append((p.relative_to(tree).as_posix(), m.group(2) or m.group(1).strip()))
     literal = {n for _, n in writers if re.fullmatch(r"\w+", n)}
     dynamic = sorted({f for f, n in writers if not re.fullmatch(r"\w+", n) or f.endswith("overlay.cpp")})
-    ok("no literal runtime writer of a mute cvar", not (literal & set(MUTE)), str(sorted(literal & set(MUTE))))
+    watched = set(MUTE) | set(WHEEL_WGI)
+    ok("no literal runtime writer of a mute cvar", not (literal & watched), str(sorted(literal & watched)))
     ok("dynamic runtime writers are the user menus only",
        set(dynamic) <= {S + "src/ui/overlay/settings_overlay.cpp", S + "src/ui/overlay/console_overlay.cpp"}, str(dynamic))
     result["runtime_writers"] = sorted(set(writers))
@@ -341,6 +374,7 @@ def static_check(tree: Path, verify_git: bool = True) -> dict:
         result["hidapi_drivers"], result["hidapi_hints"] = drivers, sorted(consulted)
         ok("HIDAPI drivers found", drivers >= 20, str(drivers))
         ok("every HIDAPI enable hint fenced", consulted <= set(SDL_FENCE), str(sorted(consulted - set(SDL_FENCE))))
+        ok("wheel-wgi fence keeps every HIDAPI hint at 0", all(WGI_FENCE.get(h) == "0" for h in consulted), "")
         haptic_hints = re.findall(r"SDL_GetHint\w*\(", "".join(p.read_text("utf-8", "replace")
                                                              for p in (sdl_src / "haptic/hidapi").glob("*.c")))
         ok("HIDAPI haptic reads no own enable hint", not haptic_hints, str(haptic_hints))
@@ -351,22 +385,28 @@ def static_check(tree: Path, verify_git: bool = True) -> dict:
 
     defs = cvar_definitions({k: v for k, v in texts.items()} | {
         str(p): p.read_text("utf-8", "replace") for p in (tree / S / "src").rglob("*.cpp")})
-    errors = check_profile(defs, MUTE | {"pad_log_vibration": True, "wheel_ffb_trace": True,
+    errors = check_profile(defs, WHEEL_WGI) + check_profile(defs, MUTE | {"pad_log_vibration": True, "wheel_ffb_trace": True,
                                           "wheel_ffb_trace_file": "x", "fh2_captura_cada_s": "15",
                                           "fh2_captura_max": "40", "fh2_teste_botoes": BUTTONS,
                                           "fullscreen": None, "resolution": "1280x720",
                                           "game_data_root": "x", "user_data_root": "x", "cache_root": "x"})
     ok("profile names/types/ranges valid", not errors, "; ".join(errors))
+    ok("wheel-wgi differs from mute only by wheel_enabled/wheel_log_inputs",
+       {k for k in set(MUTE) | set(WHEEL_WGI) if MUTE.get(k, "?") != WHEEL_WGI.get(k, "?")}
+       == {"wheel_enabled", "wheel_log_inputs"}, "")
+    ok("wheel-wgi fence differs from mute only by SDL_JOYSTICK_WGI=1",
+       set(WGI_FENCE) == set(SDL_FENCE) and {k for k in WGI_FENCE if WGI_FENCE[k] != SDL_FENCE[k]} == {"SDL_JOYSTICK_WGI"}, "")
     result["pass"] = True
     return result
 
 
 # ---------------------------------------------------------------------------------------------- profile
 
-def launch_profile(root: Path, owner: Path) -> dict:
+def launch_profile(root: Path, owner: Path, route: str = "mute") -> dict:
+    cvars, fence = ROUTES[route]
     root = Path(os.path.abspath(root))
     out = root / "out"
-    values = MUTE | {
+    values = cvars | {
         "pad_log_vibration": True,
         "wheel_ffb_trace": True,
         "wheel_ffb_trace_file": str(out / "ffb-trace.csv"),
@@ -383,24 +423,24 @@ def launch_profile(root: Path, owner: Path) -> dict:
     for name, value in values.items():
         argv.append(f"--no-{name}" if value is None else f"--{name}" if value is True else f"--{name}={value}")
     toml = "".join(f"{n} = {'false' if v is None else 'true' if v is True else json.dumps(v) if not re.fullmatch(r'-?[0-9]+', v) else v}\n"
-                   for n, v in values.items() if n in MUTE)
+                   for n, v in values.items() if n in cvars)
     write_roots = {"config": root / "bin" / "fh2.toml", "logs": root / "bin" / "logs",
                    "captures": root / "bin" / "capturas", "user": root / "user", "cache": root / "user" / "cache",
                    "ffb_trace": out / "ffb-trace.csv"}
-    return {"argv": argv, "env": dict(SDL_FENCE), "toml": toml, "values": values,
+    return {"route": route, "argv": argv, "env": dict(fence), "toml": toml, "values": values,
             "write_roots": {k: str(v) for k, v in write_roots.items()}}
 
 
-def launch_env(inherited: dict) -> dict:
+def launch_env(inherited: dict, fence: dict = SDL_FENCE) -> dict:
     """The inherited environment with every SDL_* variable removed, then the fence applied."""
     env = {k: v for k, v in inherited.items() if not k.upper().startswith("SDL_")}
-    env.update(SDL_FENCE)
+    env.update(fence)
     return env
 
 
-def env_errors(env: dict) -> list[str]:
-    errors = [f"env {k} = {env.get(k)!r}, want '0'" for k in SDL_FENCE if env.get(k) != "0"]
-    errors += [f"env unexpected {k}" for k in env if k.upper().startswith("SDL_") and k not in SDL_FENCE]
+def env_errors(env: dict, fence: dict = SDL_FENCE) -> list[str]:
+    errors = [f"env {k} = {env.get(k)!r}, want {v!r}" for k, v in fence.items() if env.get(k) != v]
+    errors += [f"env unexpected {k}" for k in env if k.upper().startswith("SDL_") and k not in fence]
     return errors
 
 
@@ -418,21 +458,25 @@ def effective(profile: dict, toml_text: str | None = None) -> dict:
 
 
 def profile_errors(profile: dict, owner: Path, toml_text: str | None = None) -> list[str]:
+    route = profile.get("route", "mute")
+    if route not in ROUTES:
+        return [f"unknown route {route!r}"]
+    cvars, fence = ROUTES[route]
     eff = effective(profile, toml_text)
     errors = []
-    for name, value in MUTE.items():
+    for name, value in cvars.items():
         want = False if value is None else value
         got = eff.get(name)
         if got is None or got[0] != "cli" or str(got[1]).lower() != str(want).lower():
             errors.append(f"{name}: effective {got}, want cli {want!r}")
-    errors += env_errors(launch_env(dict(os.environ) | profile["env"]))
-    if profile["env"] != SDL_FENCE:
+    errors += env_errors(launch_env(dict(os.environ) | profile["env"], fence), fence)
+    if profile["env"] != fence:
         errors.append("profile env differs from the fence")
     for k, v in profile["write_roots"].items():
         if overlaps(Path(v), owner):
             errors.append(f"write root {k} inside owner install: {v}")
     for a in profile["argv"][1:]:
-        if re.fullmatch(r"--\w+=", a) and a[2:-1] not in MUTE:
+        if re.fullmatch(r"--\w+=", a) and a[2:-1] not in cvars:
             errors.append(f"unexpected empty value {a}")
     return errors
 
@@ -901,10 +945,7 @@ def supervise(root: Path, argv: list[str], env: dict, seconds: int, hold_lease, 
         res["custody_clear"] = bool(exited and res["job_active"] == 0 and not res["errors"]
                                     and res["postflight"].get("pass") and res["lease_held_at_end"])
         e = res["evidence"] or {}
-        res["gates"] = {
-            "M_runtime": bool(exited and e.get("logs") and e.get("sdl_input_initialized")
-                              and e.get("telemetry_sender_started") and e.get("captures")
-                              and not e.get("sdl_wheel_lines") and not e.get("sdl_gamepad_opened")),
+        res["gates"] = route_gates(res.get("route", "mute"), exited, e) | {
             "G1_boot": bool(res["elapsed_s"] >= 60 and e.get("logs") and not e.get("crash_lines")),
             "G2_frames": len(e.get("captures") or []) >= 3,
             "G3_menu": "review of captures",
@@ -925,7 +966,16 @@ def supervise(root: Path, argv: list[str], env: dict, seconds: int, hold_lease, 
 
 # ---------------------------------------------------------------------------------------------- commands
 
-def cmd_prepare(root: Path, owner: Path) -> dict:
+def route_gates(route: str, exited: bool, e: dict) -> dict:
+    base = bool(exited and e.get("logs") and e.get("sdl_input_initialized") and e.get("telemetry_sender_started")
+                and e.get("captures") and not e.get("sdl_gamepad_opened"))
+    if route == "wheel-wgi":  # the wheel opened as the guest's wheel, and SDL found no force device on it
+        return {"W_noforce": bool(base and e.get("wheel_opened") and e.get("wheel_guest") and e.get("wheel_no_ffb")
+                                  and not e.get("wheel_ffb_opened") and not e.get("wheel_ffb_open_failed"))}
+    return {"M_runtime": bool(base and not e.get("sdl_wheel_lines"))}
+
+
+def cmd_prepare(root: Path, owner: Path, route: str = "mute") -> dict:
     errors = root_errors(root, owner, must_exist=False)
     if errors:
         raise Fail("; ".join(errors))
@@ -936,7 +986,7 @@ def cmd_prepare(root: Path, owner: Path) -> dict:
     rows = census_refusals(processes())
     if rows:
         raise Fail("refused, running: " + "; ".join(rows))
-    profile = launch_profile(root, owner)
+    profile = launch_profile(root, owner, route)
     errors = profile_errors(profile, owner)
     if errors:
         raise Fail("; ".join(errors))
@@ -949,12 +999,12 @@ def cmd_prepare(root: Path, owner: Path) -> dict:
         if sha256(root / "bin" / name).upper() != BIN[name]:
             raise Fail(f"private copy {name} hash mismatch")
     (root / "bin" / "fh2.toml").write_text(profile["toml"], encoding="utf-8", newline="\n")
-    plan = {"schema": SCHEMA, "app": APP_HEAD, "sdk": SDK_HEAD, "owner": str(owner), "root": str(root),
+    plan = {"schema": SCHEMA, "route": route, "app": APP_HEAD, "sdk": SDK_HEAD, "owner": str(owner), "root": str(root),
             "bin": BIN, "profile": profile, "toml_sha256": sha256(root / "bin" / "fh2.toml"),
             "tool_sha256": sha256(Path(__file__)), "created": time.strftime("%Y-%m-%dT%H:%M:%S%z")}
     (root / "plan.json").write_text(json.dumps(plan, indent=1), encoding="utf-8")
     (root / "baseline.json").write_text(json.dumps(baseline), encoding="utf-8")
-    return {"pass": True, "root": str(root), "plan_sha256": sha256(root / "plan.json"),
+    return {"pass": True, "route": route, "root": str(root), "plan_sha256": sha256(root / "plan.json"),
             "baseline_sha256": sha256(root / "baseline.json")}
 
 
@@ -968,7 +1018,9 @@ def admitted_plan(root: Path, plan_sha: str | None, baseline_sha: str | None) ->
     errors = root_errors(root, owner, must_exist=True)
     if plan.get("schema") != SCHEMA or plan.get("bin") != BIN or Path(plan["root"]) != Path(os.path.abspath(root)):
         errors.append("plan schema/bin/root mismatch")
-    if plan["profile"] != json.loads(json.dumps(launch_profile(root, owner))):
+    if plan.get("route") not in ROUTES or plan["profile"].get("route") != plan["route"]:
+        errors.append("plan route missing or inconsistent")
+    elif plan["profile"] != json.loads(json.dumps(launch_profile(root, owner, plan["route"]))):
         errors.append("plan profile differs from the regenerated profile")
     errors += profile_errors(plan["profile"], owner)
     if sha256(Path(__file__)) != plan["tool_sha256"]:
@@ -1000,6 +1052,11 @@ def evidence(root: Path, since_unix: float) -> dict:
         "logs": [str(p) for p in logs],
         "sdl_input_initialized": any("SDL input driver initialized successfully" in l for l in lines),
         "sdl_wheel_lines": [l for l in lines if "SDL wheel" in l],
+        "wheel_opened": [l for l in lines if "SDL wheel: opened" in l],
+        "wheel_guest": [l for l in lines if "is the guest's racing wheel" in l],
+        "wheel_no_ffb": [l for l in lines if "has no force feedback; rumble only" in l],
+        "wheel_ffb_opened": [l for l in lines if "SDL wheel: force feedback on" in l],
+        "wheel_ffb_open_failed": [l for l in lines if "could not open force feedback" in l],
         "sdl_gamepad_opened": [l for l in lines if "OnControllerDeviceAdded" in l],
         "telemetry_sender_started": any("telemetry: loopback sender started" in l for l in lines),
         "vibration_requests": sum("Vibration user" in l for l in lines),
@@ -1015,9 +1072,9 @@ def cmd_run(root: Path, go: str, seconds: int, plan_sha: str, baseline_sha: str)
     pre = cmd_verify(root, plan)
     if not pre["pass"]:
         raise Fail("preflight: " + json.dumps(pre))
-    res = supervise(root, plan["profile"]["argv"], launch_env(dict(os.environ)), seconds,
+    res = supervise(root, plan["profile"]["argv"], launch_env(dict(os.environ), ROUTES[plan["route"]][1]), seconds,
                     hold_lease=lambda: lease_holds(token), hooks={"postflight": lambda: cmd_verify(root, plan)},
-                    meta={"go": go, "plan_sha256": plan_sha, "baseline_sha256": baseline_sha, "lease_token": token})
+                    meta={"route": plan["route"], "go": go, "plan_sha256": plan_sha, "baseline_sha256": baseline_sha, "lease_token": token})
     res.pop("_job", None)
     return res | {"pass": res["custody_clear"] and res["gates"]["R_restore"]}
 
@@ -1079,6 +1136,35 @@ def cmd_selftest() -> dict:
             dict(prof, env={k: v for k, v in SDL_FENCE.items() if "PS5" not in k}), owner)))
         t("write root inside owner refused", any("inside owner" in e for e in
                                                  profile_errors(launch_profile(owner / "x", owner), owner)))
+        # Route wheel-wgi: the wheel steers through WGI only; every force stays muted.
+        wprof = launch_profile(PRIVATE_PARENT / "vibe-fh2-selftest", owner, "wheel-wgi")
+        t("wheel-wgi profile passes", profile_errors(wprof, owner) == [])
+        t("wheel-wgi keeps every force at its mute value",
+          all(wprof["values"][k] == v for k, v in MUTE.items() if k != "wheel_enabled"))
+        t("wheel-wgi enables the wheel", "--wheel_enabled" in wprof["argv"] and "--no-wheel_enabled" not in wprof["argv"])
+        wenv = launch_env(inherited, WGI_FENCE)
+        t("wheel-wgi env: WGI on, every other backend and HIDAPI driver off",
+          env_errors(wenv, WGI_FENCE) == [] and wenv["SDL_JOYSTICK_WGI"] == "1"
+          and wenv["SDL_JOYSTICK_DIRECTINPUT"] == "0" and wenv["SDL_JOYSTICK_HIDAPI_LG4FF"] == "0"
+          and "sdl_gamecontrollerconfig" not in wenv)
+        t("wheel-wgi env refused under the mute fence", env_errors(wenv) != [])
+        t("mute env refused under the wheel-wgi fence", env_errors(env, WGI_FENCE) != [])
+        loudw = dict(wprof, argv=[a.replace("--wheel_ffb_strength=0", "--wheel_ffb_strength=50") for a in wprof["argv"]])
+        t("wheel-wgi force change refused", any("wheel_ffb_strength" in e for e in profile_errors(loudw, owner)))
+        t("wheel-wgi with DirectInput on refused",
+          profile_errors(dict(wprof, env=WGI_FENCE | {"SDL_JOYSTICK_DIRECTINPUT": "1"}), owner) != [])
+        t("route mismatch refused", profile_errors(dict(wprof, route="mute"), owner) != [])
+        t("unknown route refused", profile_errors(dict(wprof, route="wheel-di"), owner) != [])
+        ev = {"logs": ["x"], "sdl_input_initialized": True, "telemetry_sender_started": True, "captures": ["c"],
+              "wheel_opened": ["o"], "wheel_guest": ["g"], "wheel_no_ffb": ["n"]}
+        t("wheel-wgi gate passes on no-force evidence", route_gates("wheel-wgi", True, ev)["W_noforce"])
+        t("wheel-wgi gate fails if a force device opened",
+          not route_gates("wheel-wgi", True, ev | {"wheel_ffb_opened": ["f"]})["W_noforce"])
+        t("wheel-wgi gate fails if a force open was attempted",
+          not route_gates("wheel-wgi", True, ev | {"wheel_ffb_open_failed": ["f"]})["W_noforce"])
+        t("wheel-wgi gate fails without the no-force line",
+          not route_gates("wheel-wgi", True, {k: v for k, v in ev.items() if k != "wheel_no_ffb"})["W_noforce"])
+        t("mute gate fails on any wheel line", not route_gates("mute", True, ev | {"sdl_wheel_lines": ["w"]})["M_runtime"])
         t("root outside _work refused", root_errors(d / "elsewhere", owner, False) != [])
         t("root inside owner refused", any("overlaps" in e for e in root_errors(owner / "bin", owner, True)))
         t("existing root refused for prepare", any("already exists" in e for e in root_errors(owner, owner, False)))
@@ -1285,6 +1371,7 @@ def main() -> int:
     p = sub.add_parser("prepare")
     p.add_argument("--root", type=Path, required=True)
     p.add_argument("--owner", type=Path, default=OWNER)
+    p.add_argument("--route", choices=sorted(ROUTES), default="mute")
     v = sub.add_parser("verify")
     v.add_argument("--root", type=Path, required=True)
     rc = sub.add_parser("recover", help="inspect (or, by explicit decision, end) a run's held job")
@@ -1331,7 +1418,7 @@ def main() -> int:
             rows = census_refusals(processes())
             out = {"pass": not rows, "refused": rows, "owner_idle_s": round(idle_seconds(), 1)}
         elif a.cmd == "prepare":
-            out = cmd_prepare(a.root, a.owner)
+            out = cmd_prepare(a.root, a.owner, a.route)
         elif a.cmd == "verify":
             out = cmd_verify(a.root)
         else:
