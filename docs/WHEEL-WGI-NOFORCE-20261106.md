@@ -47,9 +47,17 @@ The evidence is in `windows/.local/wheel-wgi-20261106/` (git-ignored).
 ## Assumptions (not provable from source)
 
 - Windows enumerates the MOZA base as a WGI `RawGameController`, not as an Xbox-class `Gamepad`.
-- Reading it through WGI sends no output report to the base. That depends on Windows and the MOZA
-  driver, not on SDL. The live gate below is the runtime witness. Whether the base physically stays
-  still is for the owner to observe; it is not measured.
+  - This matters because the pinned SDK's `StopWheelForcesLocked` always calls
+    `SDL_RumbleJoystick(base, 0, 0, 0)`, whatever `wheel_ffb_mode` is. WGI drops that call only when the
+    device is not a `Gamepad`. As a `Gamepad`, it would become one zero-intensity `put_Vibration`.
+  - The runtime log cannot witness this. The logged SDL joystick type comes from SDL's vendor/product
+    table first, and a missing `OnControllerDeviceAdded` line does not prove WGI's gamepad pointer is null.
+- Reading the base through WGI sends no output report to it. That depends on Windows and the MOZA
+  driver, not on SDL.
+
+`W_noforce` therefore proves only the expected SDK no-haptic log pattern (pali549562 APPROVE, with this
+limit). It is not a zero-output or physical-stillness proof. Whether the base physically stays still is
+for the owner to observe; it is not measured.
 
 ## Live packet (needs a hash-bound kole GO, the same physical preconditions, and the census clear)
 
