@@ -717,27 +717,44 @@ def job_members(job: int) -> list[dict]:
     return members
 
 
-def hold_job(root: Path, job: int, timeout: float | None = None) -> dict:
-    """Keep owning the job handle until the job is empty. custody.json names the job and its members; the
-    `recover` command opens the same job by name to inspect it or, by explicit operator decision, end it."""
-    t0, seen = time.monotonic(), {}
+def hold_job(root: Path, job: int, timeout: float | None = None, write=None) -> dict:
+    """Keep owning the job handle until a successful query observes it empty. custody.json names the job and its
+    members; `recover` opens the same job by name to inspect it or, by explicit operator decision, end it.
+    Query, member and write failures are recorded and retried; they never end ownership. timeout is selftest-only."""
+    t0, seen, errors = time.monotonic(), {}, []
     custody = root / "out" / "custody.json"
+    write = write or (lambda text: custody.write_text(text, encoding="utf-8"))
+
+    def note(what, e):
+        if len(errors) < 200:
+            errors.append(f"{what}: {e!r}")
+
     while True:
-        active = job_active(job)
         try:
-            members = job_members(job) if active else []
-        except Fail as e:
-            members = [{"error": str(e)}]
+            active = job_active(job)
+        except Exception as e:
+            note("job_active", e)
+            active = None
+        members = []
+        if active:
+            try:
+                members = job_members(job)
+            except Exception as e:
+                note("job_members", e)
         for m in members:
             if m.get("pid"):
                 seen[(m["pid"], m.get("birth_filetime"))] = m
-        custody.write_text(json.dumps({"job_name": job_name(root), "supervisor_pid": os.getpid(), "active": active,
-                                       "members": members, "updated": time.time()}, indent=1), encoding="utf-8")
+        try:
+            write(json.dumps({"job_name": job_name(root), "supervisor_pid": os.getpid(), "active": active,
+                              "members": members, "updated": time.time()}, indent=1))
+        except Exception as e:
+            note("custody write", e)
         if active == 0:
             return {"emptied": True, "held_s": round(time.monotonic() - t0, 1), "members_seen": list(seen.values()),
-                    "ended_by_recover": (root / "out" / "recover-terminated.json").exists()}
+                    "ended_by_recover": (root / "out" / "recover-terminated.json").exists(), "errors": errors}
         if timeout is not None and time.monotonic() - t0 > timeout:
-            return {"emptied": False, "held_s": round(time.monotonic() - t0, 1), "members_seen": list(seen.values())}
+            return {"emptied": False, "held_s": round(time.monotonic() - t0, 1), "members_seen": list(seen.values()),
+                    "errors": errors}
         time.sleep(2.0)
 
 
@@ -871,7 +888,8 @@ def supervise(root: Path, argv: list[str], env: dict, seconds: int, hold_lease, 
         res["job_active"] = step("job", lambda: job_active(job), -1) if job else (0 if proc is None else -1)
         res["job_pids"] = step("job_pids", lambda: job_pids(job), []) if job else []
         if job and res["job_active"] != 0:  # descendants survive: keep owning the job until it empties
-            res["held"] = step("hold", lambda: hold_job(root, job, hooks.get("hold_timeout")), {"emptied": False})
+            res["held"] = hold_job(root, job, hooks.get("hold_timeout"), hooks.get("custody_write"))  # contains its own failures
+            res["errors"] += [f"hold: {e}" for e in res["held"].get("errors", [])]
             res["job_active"] = step("job_after_hold", lambda: job_active(job), -1)
             res["job_pids"] = step("job_pids_after_hold", lambda: job_pids(job), [])
         res["foreground_after"] = step("foreground_after", foreground)
@@ -1186,6 +1204,28 @@ def cmd_selftest() -> dict:
                               capture_output=True, text=True, timeout=60)
         t("job name released after closure", json.loads(gone.stdout).get("pass") is False)
 
+        # CLI fault: every custody.json write fails; ownership must survive, recover must still work.
+        flt = sandbox("cli-fault")
+        sup = subprocess.Popen([py, "-I", str(Path(__file__)), "_orphan_supervise", "--root", str(flt), "--n", "1",
+                                "--fail-custody-writes"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        deadline = time.monotonic() + 30
+        while time.monotonic() < deadline and not (flt / "out" / "pids.txt").exists():
+            time.sleep(0.5)
+        time.sleep(6.5)  # several failed custody writes
+        rec = json.loads(subprocess.run([py, "-I", str(Path(__file__)), "recover", "--root", str(flt)],
+                                        capture_output=True, text=True, timeout=60).stdout)
+        want = sorted(int(x) for x in (flt / "out" / "pids.txt").read_text().split(","))
+        t("write failures: supervisor keeps the job", sup.poll() is None and rec.get("active") == 1
+          and not (flt / "out" / "custody.json").exists())
+        t("write failures: recover sees the exact survivor", sorted(m["pid"] for m in rec["members"]) == want)
+        end = json.loads(subprocess.run([py, "-I", str(Path(__file__)), "recover", "--root", str(flt),
+                                         "--terminate-job"], capture_output=True, text=True, timeout=60).stdout)
+        sup.communicate(timeout=60)
+        final = json.loads((flt / "result.json").read_text())
+        t("write failures: closed out with terminal error evidence and custody kept", end.get("active_after") == 0
+          and final["job_active"] == 0 and final["held"]["emptied"] and len(final["held"]["errors"]) >= 2
+          and any("custody write" in e for e in final["errors"]) and not final["custody_clear"])
+
         stale = sandbox("stale")
         (stale / "result.json").write_text("{}")
         try:
@@ -1218,12 +1258,16 @@ def orphan_argv(py: str, n: int, pids_file: Path) -> list[str]:
     return [py, "-I", "-c", code]
 
 
-def _orphan_supervise(root: Path, n: int) -> dict:
+def _orphan_supervise(root: Path, n: int, fail_writes: bool = False) -> dict:
     """Selftest only: supervise an orphan-producing sleeper root through the real hold path (no timeout)."""
     root = Path(os.path.abspath(root))
     py = os.path.realpath(sys.executable)
-    return supervise(root, orphan_argv(py, n, root / "out" / "pids.txt"), dict(os.environ), 20, lambda: True,
-                     {"postflight": lambda: {"pass": True}, "evidence": lambda r, s: {}})
+    hooks = {"postflight": lambda: {"pass": True}, "evidence": lambda r, s: {}}
+    if fail_writes:
+        def locked(_text):
+            raise PermissionError(13, "custody.json locked (injected)")
+        hooks["custody_write"] = locked
+    return supervise(root, orphan_argv(py, n, root / "out" / "pids.txt"), dict(os.environ), 20, lambda: True, hooks)
 
 
 def _self_handle() -> int:
@@ -1249,6 +1293,7 @@ def main() -> int:
     o = sub.add_parser("_orphan_supervise")
     o.add_argument("--root", type=Path, required=True)
     o.add_argument("--n", type=int, default=2)
+    o.add_argument("--fail-custody-writes", action="store_true")
     r = sub.add_parser("run")
     r.add_argument("--root", type=Path, required=True)
     r.add_argument("--go", required=True)
@@ -1280,7 +1325,7 @@ def main() -> int:
         elif a.cmd == "recover":
             out = cmd_recover(a.root, a.terminate_job)
         elif a.cmd == "_orphan_supervise":
-            out = _orphan_supervise(a.root, a.n)
+            out = _orphan_supervise(a.root, a.n, a.fail_custody_writes)
             out.pop("_job", None)
         elif a.cmd == "census":
             rows = census_refusals(processes())
