@@ -4,6 +4,14 @@ Kole539149. Offline work only: no game, device, rig, lease or owner write. Tool:
 [`windows/tools/fh2_force_mute.py`](../windows/tools/fh2_force_mute.py) (stdlib Python, run with `python -I`).
 Revision 5 addresses pali540713, pali541147, pali541480 and pali541733 (revisions `b2000f2`, `6f5f79c`, `79a5754` and `8bf5b2e` were NEEDS CHANGES).
 
+**Status 2026-11-07 (clean stop).**
+- pali541810 approved rev5.
+- The live GO542095 was refused at the census because SimHub was running. Nothing was launched.
+- Main now carries the tool with the added `wheel-wgi` route: sha256 `C3137B29...`, pali549562. The
+  mute route's behaviour is unchanged. See [WHEEL-WGI-NOFORCE-20261106.md](WHEEL-WGI-NOFORCE-20261106.md).
+- Neither route has run live.
+- Handoff: `E:\Source\dbce-project-mgmt\docs\handoffs\2026-11-07-vibe-final.md`.
+
 ## Target
 
 The installed owner copy is napo's file-only deploy `fh2-041811100`: app `734fff4`, SDK `e223de8d`,
